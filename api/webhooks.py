@@ -1,0 +1,272 @@
+"""
+Webhook API endpoints for Facebook.
+
+This module handles:
+1. Webhook verification (GET /webhook)
+2. Incoming message/comment processing (POST /webhook)
+"""
+
+from fastapi import APIRouter, Request, Response, BackgroundTasks, HTTPException
+from loguru import logger
+from typing import Dict, Any
+import main
+from config.settings import settings
+
+router = APIRouter()
+
+
+@router.get("/", summary="Verify webhook with Facebook")
+async def verify_webhook(
+    mode: str,
+    token: str,
+    challenge: str
+):
+    """
+    Verify webhook subscription with Facebook.
+
+    Facebook sends a GET request with:
+    - hub.mode: Should be "subscribe"
+    - hub.verify_token: Should match our VERIFY_TOKEN
+    - hub.challenge: Challenge string to return
+
+    Returns the challenge if verification successful.
+    """
+    logger.info(f"Webhook verification request: mode={mode}, token={token[:10]}...")
+
+    if main.facebook_service:
+        result = main.facebook_service.verify_webhook(mode, token, challenge)
+        if result:
+            return Response(content=result, status_code=200)
+
+    logger.warning("Webhook verification failed")
+    raise HTTPException(status_code=403, detail="Verification failed")
+
+
+@router.post("/", summary="Receive Facebook events")
+async def handle_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks
+):
+    """
+    Handle incoming Facebook events (messages, comments).
+
+    Processes the payload in background to respond quickly to Facebook.
+    """
+    try:
+        payload = await request.json()
+        logger.info(f"Received webhook payload with {len(payload.get('entry', []))} entries")
+
+        # Process in background task
+        background_tasks.add_task(process_webhook_payload, payload)
+
+        # Return 200 OK immediately (Facebook expects quick response)
+        return Response(status_code=200)
+
+    except Exception as e:
+        logger.error(f"Error handling webhook: {e}")
+        # Still return 200 to avoid Facebook resending
+        return Response(status_code=200)
+
+
+async def process_webhook_payload(payload: Dict[str, Any]):
+    """
+    Process webhook payload in background.
+
+    Handles both messaging events and comment events.
+    """
+    try:
+        for entry in payload.get("entry", []):
+            entry_id = entry.get("id")
+            entry_time = entry.get("time")
+
+            logger.debug(f"Processing entry: {entry_id}")
+
+            # Process messaging events (DMs)
+            for messaging in entry.get("messaging", []):
+                await process_messaging_event(messaging)
+
+            # Process feed/comment events
+            for change in entry.get("changes", []):
+                await process_feed_change(change)
+
+    except Exception as e:
+        logger.error(f"Error processing webhook payload: {e}")
+
+
+async def process_messaging_event(messaging: Dict[str, Any]):
+    """
+    Process a messaging event (DM).
+
+    Args:
+        messaging: Messaging event data
+    """
+    try:
+        sender_id = messaging.get("sender", {}).get("id")
+        recipient_id = messaging.get("recipient", {}).get("id")
+
+        if not sender_id:
+            logger.warning("No sender ID in messaging event")
+            return
+
+        # Check if this is a message
+        message = messaging.get("message", {})
+
+        # Skip if this is a message echo (our own message)
+        if message.get("is_echo"):
+            logger.debug(f"Skipping echo message from {sender_id}")
+            return
+
+        # Skip if no text content
+        message_text = message.get("text", "")
+        if not message_text:
+            logger.debug(f"No text in message from {sender_id}")
+            return
+
+        logger.info(f"📨 Message from {sender_id}: {message_text[:100]}...")
+
+        # Check feature flag
+        if not settings.enable_dm_replies:
+            logger.info("DM replies disabled, skipping")
+            return
+
+        # Handle the message
+        await handle_incoming_message(sender_id, message_text)
+
+    except Exception as e:
+        logger.error(f"Error processing messaging event: {e}")
+
+
+async def process_feed_change(change: Dict[str, Any]):
+    """
+    Process a feed/comment change event.
+
+    Args:
+        change: Change event data
+    """
+    try:
+        field = change.get("field")
+        value = change.get("value", {})
+
+        logger.debug(f"Feed change: field={field}")
+
+        # Process comment changes
+        if field == "feed":
+            # Check if this is a comment (not a post)
+            if "comment_id" in value and "message" in value:
+                comment_id = value["comment_id"]
+                comment_text = value["message"]
+                post_id = value.get("post_id")
+
+                logger.info(f"💬 Comment {comment_id} on post {post_id}: {comment_text[:100]}...")
+
+                # Check feature flag
+                if not settings.enable_comment_replies:
+                    logger.info("Comment replies disabled, skipping")
+                    return
+
+                # Handle the comment
+                await handle_comment(comment_id, comment_text)
+
+            # Check if this is a new post
+            elif "post_id" in value and "message" in value:
+                post_id = value["post_id"]
+                post_message = value["message"]
+
+                logger.info(f"📝 New post {post_id}: {post_message[:100]}...")
+                # Could trigger auto-scraper here
+
+    except Exception as e:
+        logger.error(f"Error processing feed change: {e}")
+
+
+async def handle_incoming_message(sender_id: str, message_text: str):
+    """
+    Handle an incoming DM message.
+
+    Args:
+        sender_id: Facebook user ID
+        message_text: Message text
+    """
+    try:
+        # Generate context from knowledge base
+        logger.debug(f"Searching knowledge base for: {message_text[:50]}...")
+        context = main.knowledge_base.generate_context(
+            message_text,
+            include_qa=True,
+            top_products=3,
+            top_qa=2
+        )
+
+        # Generate response using Gemini
+        logger.debug("Generating AI response...")
+        response = await main.gemini_service.generate_response(
+            message_text,
+            context
+        )
+
+        logger.info(f"Generated response: {response[:100]}...")
+
+        # Send reply via Facebook
+        success = await main.facebook_service.send_message(sender_id, response)
+
+        if success:
+            logger.info(f"✓ Reply sent to {sender_id}")
+
+            # Optionally save Q&A to knowledge base
+            main.knowledge_base.add_qa_pair(
+                question=message_text,
+                answer=response,
+                source="dm"
+            )
+        else:
+            logger.error(f"✗ Failed to send reply to {sender_id}")
+
+    except Exception as e:
+        logger.error(f"Error handling message: {e}")
+
+
+async def handle_comment(comment_id: str, comment_text: str):
+    """
+    Handle a page comment.
+
+    Args:
+        comment_id: Facebook comment ID
+        comment_text: Comment text
+    """
+    try:
+        # Generate context from knowledge base
+        logger.debug(f"Searching knowledge base for: {comment_text[:50]}...")
+        context = main.knowledge_base.generate_context(
+            comment_text,
+            include_qa=True,
+            top_products=3,
+            top_qa=2
+        )
+
+        # Generate response using Gemini
+        logger.debug("Generating AI response...")
+        response = await main.gemini_service.generate_response(
+            comment_text,
+            context
+        )
+
+        logger.info(f"Generated response: {response[:100]}...")
+
+        # Send reply via Facebook
+        success = await main.facebook_service.send_comment_reply(comment_id, response)
+
+        if success:
+            logger.info(f"✓ Reply sent to comment {comment_id}")
+
+            # Optionally save Q&A to knowledge base
+            main.knowledge_base.add_qa_pair(
+                question=comment_text,
+                answer=response,
+                source="comment",
+                metadata={"comment_id": comment_id}
+            )
+        else:
+            logger.error(f"✗ Failed to send reply to comment {comment_id}")
+
+    except Exception as e:
+        logger.error(f"Error handling comment: {e}")
