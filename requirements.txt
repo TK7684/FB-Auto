@@ -6,7 +6,7 @@ pydantic-settings==2.1.0
 
 # Facebook
 facebook-sdk==3.1.0
-facebook-scraper==0.2.72
+facebook-scraper==0.2.59
 
 # Gemini
 google-generativeai==0.3.2
