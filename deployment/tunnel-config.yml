@@ -1,0 +1,12 @@
+# Cloudflare Tunnel Configuration for D Plus Skin Bot
+
+# After creating your tunnel, replace <TUNNEL_ID> below with your actual tunnel ID
+tunnel: <TUNNEL_ID>
+credentials-file: C:\Users\ttapk\.cloudflared\<TUNNEL_ID>.json
+
+# Simple configuration - just forward all traffic to your bot
+ingress:
+  - hostname: dplus-skin-bot.trycloudflare.com
+    service: http://localhost:8000
+  # Fallback for other paths
+  - service: http_status:404
