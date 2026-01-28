@@ -1,0 +1,5 @@
+Date,Pet Name,Behavior Type,Trigger,Duration (min),Severity,Notes
+2024-12-01,Max,Anxious,Thunderstorm,45,Medium,"Hid under bed, panting"
+2024-12-05,Bella,Playful,New toy,30,Low,"Very excited, running around"
+2024-12-10,Max,Aggressive,Stranger at door,10,Medium,"Barking loudly, need training"
+,,,,,,Add behavior logs here...

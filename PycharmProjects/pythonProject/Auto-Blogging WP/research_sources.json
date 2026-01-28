@@ -1,0 +1,9 @@
+{
+    "rss_feeds": [
+        "https://feeds.feedburner.com/TechCrunch/",
+        "https://www.theverge.com/rss/index.xml",
+        "https://www.wired.com/feed/rss"
+    ],
+    "newsletter_urls": [],
+    "competitor_blogs": []
+}
