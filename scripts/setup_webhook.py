@@ -7,6 +7,8 @@ instead of using the Meta Developer Portal manually.
 
 import requests
 import json
+import hashlib
+import hmac
 from typing import Dict, Any
 from loguru import logger
 import sys
@@ -30,8 +32,23 @@ class FacebookWebhookSetup:
         self.base_url = settings.facebook_graph_api_url
 
         # Your webhook configuration
-        self.webhook_url = "https://rent-rim-eight-momentum.trycloudflare.com/webhook"
+        self.webhook_url = "https://potential-nebraska-cycling-caused.trycloudflare.com/webhook"
         self.verify_token = settings.facebook_webhook_verify_token
+
+    def _get_appsecret_proof(self) -> str:
+        """Generate appsecret_proof for secure API calls."""
+        return hmac.new(
+            self.app_secret.encode('utf-8'),
+            self.page_access_token.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+
+    def _get_auth_params(self) -> Dict[str, str]:
+        """Get authentication parameters including appsecret_proof."""
+        return {
+            "access_token": self.page_access_token,
+            "appsecret_proof": self._get_appsecret_proof()
+        }
 
     def _get_app_access_token(self) -> str:
         """
@@ -67,8 +84,8 @@ class FacebookWebhookSetup:
         """
         url = f"{self.base_url}/{self.page_id}/subscribed_apps"
         params = {
-            "access_token": self.page_access_token,
-            "subscribed_fields": "messages,feed,comments"
+            "subscribed_fields": "feed",  # feed includes comments; messages requires pages_messaging permission
+            **self._get_auth_params()
         }
 
         try:
@@ -111,9 +128,7 @@ class FacebookWebhookSetup:
             Subscription data
         """
         url = f"{self.base_url}/{self.page_id}/subscribed_apps"
-        params = {
-            "access_token": self.page_access_token
-        }
+        params = self._get_auth_params()
 
         try:
             response = requests.get(url, params=params, timeout=10)
@@ -153,8 +168,8 @@ class FacebookWebhookSetup:
         """
         url = f"{self.base_url}/{self.page_id}"
         params = {
-            "access_token": self.page_access_token,
-            "fields": "name,id"
+            "fields": "name,id",
+            **self._get_auth_params()
         }
 
         try:

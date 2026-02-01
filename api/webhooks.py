@@ -17,9 +17,7 @@ router = APIRouter()
 
 @router.get("/", summary="Verify webhook with Facebook")
 async def verify_webhook(
-    mode: str,
-    token: str,
-    challenge: str
+    request: Request
 ):
     """
     Verify webhook subscription with Facebook.
@@ -31,9 +29,15 @@ async def verify_webhook(
 
     Returns the challenge if verification successful.
     """
-    logger.info(f"Webhook verification request: mode={mode}, token={token[:10]}...")
+    # Get query parameters - Facebook uses hub.mode, hub.verify_token, hub.challenge
+    params = dict(request.query_params)
+    mode = params.get("hub.mode")
+    token = params.get("hub.verify_token")
+    challenge = params.get("hub.challenge")
 
-    if main.facebook_service:
+    logger.info(f"Webhook verification request: mode={mode}, token={token[:10] if token else 'None'}...")
+
+    if main.facebook_service and mode and token and challenge:
         result = main.facebook_service.verify_webhook(mode, token, challenge)
         if result:
             return Response(content=result, status_code=200)
@@ -164,8 +168,8 @@ async def process_feed_change(change: Dict[str, Any]):
                     logger.info("Comment replies disabled, skipping")
                     return
 
-                # Handle the comment
-                await handle_comment(comment_id, comment_text)
+                # Handle the comment with post context
+                await handle_comment(comment_id, comment_text, post_id)
 
             # Check if this is a new post
             elif "post_id" in value and "message" in value:
@@ -225,15 +229,23 @@ async def handle_incoming_message(sender_id: str, message_text: str):
         logger.error(f"Error handling message: {e}")
 
 
-async def handle_comment(comment_id: str, comment_text: str):
+async def handle_comment(comment_id: str, comment_text: str, post_id: str = None):
     """
-    Handle a page comment.
+    Handle a page comment with post context awareness.
 
     Args:
         comment_id: Facebook comment ID
         comment_text: Comment text
+        post_id: Facebook post ID (to fetch caption for context)
     """
     try:
+        # Fetch post caption for context
+        post_caption = ""
+        if post_id and main.facebook_service:
+            post_details = main.facebook_service.get_post_details(post_id)
+            post_caption = post_details.get("message", "")
+            logger.debug(f"Post context: {post_caption[:100]}...")
+
         # Generate context from knowledge base
         logger.debug(f"Searching knowledge base for: {comment_text[:50]}...")
         context = main.knowledge_base.generate_context(
@@ -242,6 +254,10 @@ async def handle_comment(comment_id: str, comment_text: str):
             top_products=3,
             top_qa=2
         )
+
+        # Add post caption to context
+        if post_caption:
+            context = f"บริบทโพสต์: {post_caption}\n\n{context}"
 
         # Generate response using Gemini
         logger.debug("Generating AI response...")
@@ -263,7 +279,7 @@ async def handle_comment(comment_id: str, comment_text: str):
                 question=comment_text,
                 answer=response,
                 source="comment",
-                metadata={"comment_id": comment_id}
+                metadata={"comment_id": comment_id, "post_id": post_id}
             )
         else:
             logger.error(f"✗ Failed to send reply to comment {comment_id}")

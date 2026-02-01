@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     # ===== API Keys =====
     gemini_api_key: str
-    gemini_model: str = "gemini-pro"
+    gemini_model: str = "gemini-2.0-flash"
 
     # ===== Facebook Credentials =====
     facebook_app_id: str

@@ -1,0 +1,8 @@
+# Cloudflare Tunnel Configuration for D Plus Skin Bot
+# Persistent tunnel using token authentication
+
+# Route all traffic to your bot
+ingress:
+  - service: http://localhost:8000
+    # Allow all hostnames
+  - service: http_status:404

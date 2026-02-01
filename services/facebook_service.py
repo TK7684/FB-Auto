@@ -9,6 +9,8 @@ Integrates with the rate limiter to avoid API bans.
 import requests
 import time
 import json
+import hashlib
+import hmac
 from typing import Optional, Dict, Any
 from loguru import logger
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -55,12 +57,28 @@ class FacebookService:
         self.page_id = settings.facebook_page_id
         self.api_version = settings.facebook_api_version
         self.base_url = settings.facebook_graph_api_url
+        self.app_secret = settings.facebook_app_secret
         self.rate_limiter = rate_limiter
 
         logger.info(
             f"Facebook service initialized for page {self.page_id} "
             f"using API version {self.api_version}"
         )
+
+    def _get_appsecret_proof(self) -> str:
+        """Generate appsecret_proof for secure API calls."""
+        return hmac.new(
+            self.app_secret.encode('utf-8'),
+            self.page_access_token.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+
+    def _get_auth_params(self) -> Dict[str, str]:
+        """Get authentication parameters including appsecret_proof."""
+        return {
+            "access_token": self.page_access_token,
+            "appsecret_proof": self._get_appsecret_proof()
+        }
 
     def _get_headers(self) -> Dict[str, str]:
         """Get headers for API requests."""
@@ -286,6 +304,34 @@ class FacebookService:
             f"received_token={token}"
         )
         return None
+
+    def get_post_details(self, post_id: str) -> Dict[str, Any]:
+        """
+        Get post details including caption/message.
+
+        Args:
+            post_id: Facebook post ID
+
+        Returns:
+            Dictionary with post details (message, created_time, etc.)
+        """
+        url = f"{self.base_url}/{post_id}"
+        params = {
+            **self._get_auth_params(),
+            "fields": "message,created_time,full_picture,permalink_url"
+        }
+
+        try:
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+
+            data = response.json()
+            logger.debug(f"Retrieved post details for {post_id}: {data.get('message', '')[:50]}...")
+            return data
+
+        except Exception as e:
+            logger.error(f"Error fetching post details: {e}")
+            return {}
 
     def get_page_comments(
         self,

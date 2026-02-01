@@ -6,9 +6,10 @@ Uses sentence transformers for Thai language embeddings and ChromaDB for vector 
 """
 
 import pandas as pd
-import chromadb
-from chromadb.config import Settings as ChromaSettings
-from sentence_transformers import SentenceTransformer
+# Move heavy imports inside class to avoid blocking startup
+# import chromadb
+# from chromadb.config import Settings as ChromaSettings
+# from sentence_transformers import SentenceTransformer
 from typing import List, Dict, Optional, Any
 from loguru import logger
 from pathlib import Path
@@ -39,6 +40,10 @@ class KnowledgeBase:
             persist_dir: Directory for ChromaDB persistence
             embedding_model: Model name for sentence transformers
         """
+        # Lazy import to speed up initial app load
+        import chromadb
+        from sentence_transformers import SentenceTransformer
+        
         self.persist_dir = Path(persist_dir)
         self.persist_dir.mkdir(parents=True, exist_ok=True)
 
@@ -47,7 +52,7 @@ class KnowledgeBase:
 
         # Load embedding model
         model_name = embedding_model or self.DEFAULT_EMBEDDING_MODEL
-        logger.info(f"Loading embedding model: {model_name}")
+        logger.info(f"Loading embedding model: {model_name} (This may take a while...)")
         self.embedding_model = SentenceTransformer(model_name)
 
         # Get or create collections
@@ -88,15 +93,69 @@ class KnowledgeBase:
             return 0
 
         try:
-            df = pd.read_csv(csv_file, encoding="utf-8")
-            logger.info(f"Loaded {len(df)} products from {csv_path}")
+            # Read CSV - the file has English headers first, then Thai headers
+            # Skip the first 2 rows (English headers + empty row) to get to Thai headers
+            df = pd.read_csv(csv_file, encoding="utf-8", skiprows=2, on_bad_lines='skip')
 
-            # Expected columns
-            required_cols = ["Product_Name", "Symptom_Target", "Price", "Link"]
+            # Remove completely empty rows
+            df = df.dropna(how='all')
+
+            logger.info(f"Loaded {len(df)} raw rows from {csv_path}")
+
+            # Column mapping: Thai columns -> English columns
+            column_mapping = {
+                "ชื่อสินค้า": "Product_Name",
+                "คำอธิบายสินค้า": "Description",
+                "ลิงก์สินค้า": "Link",
+                "Link": "Link",
+            }
+
+            # Rename Thai columns to English
+            df = df.rename(columns=column_mapping)
+
+            # Column mapping: support both English and Thai column names
+            column_mapping = {
+                # Thai columns -> English columns
+                "ชื่อสินค้า": "Product_Name",
+                "คำอธิบายสินค้า": "Description",
+                "ลิงก์สินค้า": "Link",
+                "Link": "Link",
+            }
+
+            # Rename Thai columns to English
+            df = df.rename(columns=column_mapping)
+
+            # For columns that don't have a direct mapping, try to auto-detect
+            if "Product_Name" not in df.columns:
+                # Try to find a column that looks like product name
+                for col in df.columns:
+                    col_lower = col.lower()
+                    if "name" in col_lower or "ชื่อ" in col or "สินค้า" in col:
+                        df = df.rename(columns={col: "Product_Name"})
+                        break
+
+            if "Description" not in df.columns:
+                for col in df.columns:
+                    col_lower = col.lower()
+                    if "desc" in col_lower or "อธิบาย" in col:
+                        df = df.rename(columns={col: "Description"})
+                        break
+
+            # Required columns after mapping
+            required_cols = ["Product_Name", "Link"]
             missing_cols = [col for col in required_cols if col not in df.columns]
             if missing_cols:
                 logger.error(f"Missing required columns: {missing_cols}")
+                logger.error(f"Available columns: {list(df.columns)}")
                 return 0
+
+            # Set defaults for optional columns
+            if "Symptom_Target" not in df.columns:
+                df["Symptom_Target"] = ""
+            if "Price" not in df.columns:
+                df["Price"] = "ติดต่อสอบถาม"
+            if "Promotion" not in df.columns:
+                df["Promotion"] = ""
 
             # Clear existing if requested
             if clear_existing:
