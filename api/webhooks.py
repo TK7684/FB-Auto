@@ -8,9 +8,13 @@ This module handles:
 
 from fastapi import APIRouter, Request, Response, BackgroundTasks, HTTPException
 from loguru import logger
-from typing import Dict, Any
-import main
+from typing import Dict, Any, TYPE_CHECKING
 from config.settings import settings
+
+# Use deferred import to avoid circular dependency
+# main module is imported inside functions that need it
+if TYPE_CHECKING:
+    import main
 
 router = APIRouter()
 
@@ -37,8 +41,10 @@ async def verify_webhook(
 
     logger.info(f"Webhook verification request: mode={mode}, token={token[:10] if token else 'None'}...")
 
-    if main.facebook_service and mode and token and challenge:
-        result = main.facebook_service.verify_webhook(mode, token, challenge)
+    import main as main_module
+    
+    if main_module.facebook_service and mode and token and challenge:
+        result = main_module.facebook_service.verify_webhook(mode, token, challenge)
         if result:
             return Response(content=result, status_code=200)
 
@@ -191,10 +197,12 @@ async def handle_incoming_message(sender_id: str, message_text: str):
         sender_id: Facebook user ID
         message_text: Message text
     """
+    import main as main_module
+    
     try:
         # Generate context from knowledge base
         logger.debug(f"Searching knowledge base for: {message_text[:50]}...")
-        context = main.knowledge_base.generate_context(
+        context = main_module.knowledge_base.generate_context(
             message_text,
             include_qa=True,
             top_products=3,
@@ -203,7 +211,7 @@ async def handle_incoming_message(sender_id: str, message_text: str):
 
         # Generate response using Gemini
         logger.debug("Generating AI response...")
-        response = await main.gemini_service.generate_response(
+        response = await main_module.gemini_service.generate_response(
             message_text,
             context
         )
@@ -211,13 +219,13 @@ async def handle_incoming_message(sender_id: str, message_text: str):
         logger.info(f"Generated response: {response[:100]}...")
 
         # Send reply via Facebook
-        success = await main.facebook_service.send_message(sender_id, response)
+        success = await main_module.facebook_service.send_message(sender_id, response)
 
         if success:
             logger.info(f"✓ Reply sent to {sender_id}")
 
             # Optionally save Q&A to knowledge base
-            main.knowledge_base.add_qa_pair(
+            main_module.knowledge_base.add_qa_pair(
                 question=message_text,
                 answer=response,
                 source="dm"
@@ -229,26 +237,37 @@ async def handle_incoming_message(sender_id: str, message_text: str):
         logger.error(f"Error handling message: {e}")
 
 
+    except Exception as e:
+        logger.error(f"Error handling comment: {e}")
+
+
 async def handle_comment(comment_id: str, comment_text: str, post_id: str = None):
     """
     Handle a page comment with post context awareness.
-
+    
     Args:
         comment_id: Facebook comment ID
         comment_text: Comment text
         post_id: Facebook post ID (to fetch caption for context)
     """
+    import main as main_module
+    
     try:
+        # 1. STRICT FILTER: Check for purchase intent keywords first
+        if not main_module.gemini_service._is_purchase_intent(comment_text):
+            logger.info(f"Skipping comment (no purchase intent): {comment_text[:50]}...")
+            return
+
         # Fetch post caption for context
         post_caption = ""
-        if post_id and main.facebook_service:
-            post_details = main.facebook_service.get_post_details(post_id)
+        if post_id and main_module.facebook_service:
+            post_details = main_module.facebook_service.get_post_details(post_id)
             post_caption = post_details.get("message", "")
             logger.debug(f"Post context: {post_caption[:100]}...")
 
         # Generate context from knowledge base
         logger.debug(f"Searching knowledge base for: {comment_text[:50]}...")
-        context = main.knowledge_base.generate_context(
+        context = main_module.knowledge_base.generate_context(
             comment_text,
             include_qa=True,
             top_products=3,
@@ -261,7 +280,7 @@ async def handle_comment(comment_id: str, comment_text: str, post_id: str = None
 
         # Generate response using Gemini
         logger.debug("Generating AI response...")
-        response = await main.gemini_service.generate_response(
+        response = await main_module.gemini_service.generate_response(
             comment_text,
             context
         )
@@ -269,13 +288,24 @@ async def handle_comment(comment_id: str, comment_text: str, post_id: str = None
         logger.info(f"Generated response: {response[:100]}...")
 
         # Send reply via Facebook
-        success = await main.facebook_service.send_comment_reply(comment_id, response)
+        success = await main_module.facebook_service.send_comment_reply(comment_id, response)
 
         if success:
             logger.info(f"✓ Reply sent to comment {comment_id}")
 
+            # Save to Memory Service (Keep learning)
+            try:
+                main_module.gemini_service.memory_service.add_memory(
+                    question=comment_text,
+                    answer=response,
+                    category="product"
+                )
+                logger.debug("Saved interaction to memory.json")
+            except Exception as e:
+                logger.error(f"Failed to save memory: {e}")
+
             # Optionally save Q&A to knowledge base
-            main.knowledge_base.add_qa_pair(
+            main_module.knowledge_base.add_qa_pair(
                 question=comment_text,
                 answer=response,
                 source="comment",

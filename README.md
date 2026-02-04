@@ -17,7 +17,7 @@ AI-powered Facebook bot for D Plus Skin skincare business. The bot answers custo
 
 - **Language**: Python 3.8+
 - **Web Framework**: FastAPI
-- **AI/LLM**: Gemini API (free tier)
+- **AI/LLM**: Gemini API (via Google or OpenRouter)
 - **Vector Database**: ChromaDB
 - **Embeddings**: Sentence Transformers (multilingual)
 - **Facebook**: Graph API (official, free)
@@ -54,6 +54,9 @@ Required environment variables:
 - `FACEBOOK_PAGE_ACCESS_TOKEN` - Generate from your Facebook app
 - `FACEBOOK_PAGE_ID` - Your Facebook page ID
 - `FACEBOOK_WEBHOOK_VERIFY_TOKEN` - Create a random string
+
+Optional (for OpenRouter):
+- `OPENROUTER_API_KEY` - API key from OpenRouter (uses `google/gemini-2.0-flash-001` or comparable model)
 
 ### 3. Prepare Product Data
 
@@ -147,11 +150,11 @@ cloudflared tunnel run dplus-skin-bot
 ## Testing
 
 ```bash
-# Test the API
-python scripts/test_api.py
+# Run unit tests (FastAPI TestClient)
+pytest tests/ -v
 
-# Run tests
-pytest tests/
+# Verify OpenRouter connection
+python scripts/test_openrouter.py
 
 # Test knowledge base
 python -c "from services.knowledge_base import KnowledgeBase; kb = KnowledgeBase(); print(kb.search('ฝ้า'))"
@@ -234,10 +237,11 @@ When a user asks about a skin concern:
 - Check ChromaDB directory permissions
 - Verify products loaded (check logs)
 
-### Gemini API Errors
-- Verify API key is valid
-- Check quota not exceeded
-- Fallback responses will be used
+### Gemini/OpenRouter API Errors
+- Verify API key in `.env`
+- Check quota (Google) or credits (OpenRouter)
+- Run `python scripts/test_openrouter.py` to verify connection
+- Fallback responses will be used if API fails
 
 ## Monitoring
 

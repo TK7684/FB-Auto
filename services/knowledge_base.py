@@ -15,18 +15,28 @@ from loguru import logger
 from pathlib import Path
 import json
 from datetime import datetime
+import chromadb
+from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
+
+from services.gemini_service import get_gemini_service
+
+
+class GeminiEmbeddingFunction(EmbeddingFunction):
+    def __call__(self, input: Documents) -> Embeddings:
+        service = get_gemini_service()
+        # Ensure input is a list of strings
+        if isinstance(input, str):
+            input = [input]
+        return service.get_embeddings(input)
 
 
 class KnowledgeBase:
     """
     Knowledge base for product search and Q&A retrieval.
 
-    Uses ChromaDB with sentence transformers for semantic search
+    Uses ChromaDB with Gemini embeddings for semantic search
     in Thai and English languages.
     """
-
-    # Default embedding model (multilingual, supports Thai)
-    DEFAULT_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
     def __init__(
         self,
@@ -38,31 +48,27 @@ class KnowledgeBase:
 
         Args:
             persist_dir: Directory for ChromaDB persistence
-            embedding_model: Model name for sentence transformers
         """
-        # Lazy import to speed up initial app load
-        import chromadb
-        from sentence_transformers import SentenceTransformer
-        
         self.persist_dir = Path(persist_dir)
         self.persist_dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize ChromaDB client with persistence
         self.client = chromadb.PersistentClient(path=str(self.persist_dir))
 
-        # Load embedding model
-        model_name = embedding_model or self.DEFAULT_EMBEDDING_MODEL
-        logger.info(f"Loading embedding model: {model_name} (This may take a while...)")
-        self.embedding_model = SentenceTransformer(model_name)
+        # Initialize Gemini embedding function
+        self.embedding_fn = GeminiEmbeddingFunction()
+        logger.info("Initialized Gemini Embedding Function")
 
         # Get or create collections
         self.products_collection = self.client.get_or_create_collection(
             name="products",
+            embedding_function=self.embedding_fn,
             metadata={"hnsw:space": "cosine"}
         )
 
         self.qa_collection = self.client.get_or_create_collection(
             name="qa_pairs",
+            embedding_function=self.embedding_fn,
             metadata={"hnsw:space": "cosine"}
         )
 
@@ -162,6 +168,7 @@ class KnowledgeBase:
                 self.client.delete_collection("products")
                 self.products_collection = self.client.create_collection(
                     name="products",
+                    embedding_function=self.embedding_fn,
                     metadata={"hnsw:space": "cosine"}
                 )
                 logger.info("Cleared existing products")
@@ -451,13 +458,12 @@ _knowledge_base: Optional[KnowledgeBase] = None
 
 
 def get_knowledge_base(
-    persist_dir: str = "./data/knowledge_base",
-    embedding_model: Optional[str] = None
+    persist_dir: str = "./data/knowledge_base"
 ) -> KnowledgeBase:
     """Get the global knowledge base instance."""
     global _knowledge_base
     if _knowledge_base is None:
-        _knowledge_base = KnowledgeBase(persist_dir, embedding_model)
+        _knowledge_base = KnowledgeBase(persist_dir)
     return _knowledge_base
 
 

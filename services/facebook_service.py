@@ -225,7 +225,8 @@ class FacebookService:
     async def send_comment_reply(
         self,
         comment_id: str,
-        reply_text: str
+        reply_text: str,
+        attachment_url: Optional[str] = None
     ) -> bool:
         """
         Reply to a Facebook page comment.
@@ -233,13 +234,10 @@ class FacebookService:
         Args:
             comment_id: ID of the comment to reply to
             reply_text: Reply text
+            attachment_url: Optional URL of image to attach
 
         Returns:
             True if reply sent successfully
-
-        Raises:
-            RateLimitError: If rate limit is reached
-            FacebookAPIError: For other API errors
         """
         # Check rate limit for private replies
         if not await self.rate_limiter.acquire("private_replies"):
@@ -248,6 +246,9 @@ class FacebookService:
 
         url = f"{self.base_url}/{comment_id}/comments"
         data = {"message": reply_text}
+        
+        if attachment_url:
+            data["attachment_url"] = attachment_url
 
         try:
             response = requests.post(
@@ -262,7 +263,7 @@ class FacebookService:
             self._check_rate_limit_headers(response)
 
             if response.status_code == 200:
-                logger.info(f"✓ Reply sent to comment {comment_id}")
+                logger.info(f"✓ Reply sent to comment {comment_id} (img: {bool(attachment_url)})")
                 return True
             else:
                 self._handle_error(response)
@@ -275,6 +276,64 @@ class FacebookService:
             return False
         except Exception as e:
             logger.error(f"Unexpected error sending reply: {e}")
+            return False
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=32),
+        retry=retry_if_exception_type(RateLimitError),
+        reraise=True
+    )
+    async def send_private_reply(
+        self,
+        comment_id: str,
+        message_text: str
+    ) -> bool:
+        """
+        Send a private reply (DM) to a comment.
+        allowed_tags: COMMENT_REPLY
+
+        Args:
+            comment_id: ID of the comment to reply to
+            message_text: Message text
+
+        Returns:
+            True if sent successfully
+        """
+        # Check rate limit (uses same as messenger generally or specific limit)
+        if not await self.rate_limiter.acquire("private_replies"):
+            logger.warning("Rate limit reached for private replies")
+            return False
+
+        url = f"{self.base_url}/{comment_id}/private_replies"
+        data = {"message": message_text}
+
+        try:
+            response = requests.post(
+                url,
+                params={"access_token": self.page_access_token},
+                headers=self._get_headers(),
+                json=data,
+                timeout=10
+            )
+
+            # Check rate limit headers
+            self._check_rate_limit_headers(response)
+
+            if response.status_code == 200:
+                logger.info(f"✓ Private reply sent to comment {comment_id}")
+                return True
+            else:
+                self._handle_error(response)
+                return False
+
+        except RateLimitError:
+            raise
+        except FacebookAPIError as e:
+            logger.error(f"Facebook API error sending private reply: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error sending private reply: {e}")
             return False
 
     def verify_webhook(

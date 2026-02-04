@@ -68,8 +68,7 @@ async def lifespan(app: FastAPI):
         # Initialize knowledge base
         logger.info("Initializing knowledge base...")
         knowledge_base = get_knowledge_base(
-            persist_dir=settings.chroma_persist_dir,
-            embedding_model=settings.embedding_model
+            persist_dir=settings.chroma_persist_dir
         )
 
         # Load products if CSV exists
