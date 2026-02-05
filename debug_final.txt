@@ -1,0 +1,32 @@
+C:\Users\ttapk\PycharmProjects\pythonProject\AI bot for FB page\services\gemini_service.py:8: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+2026-02-04 14:54:23.016 | INFO     | services.memory_service:_load_memory:26 - Loaded 80 items from memory.
+2026-02-04 14:54:23.016 | INFO     | services.gemini_service:__init__:87 - Gemini service initialized with OpenRouter model: google/gemini-2.0-flash-001
+2026-02-04 14:54:23.016 | INFO     | services.gemini_service:generate_response:360 - Attempting response via OpenRouter: Hello, are you working?...
+2026-02-04 14:54:23.016 | WARNING  | services.gemini_service:generate_response:365 - OpenRouter generation failed, falling back to direct Google: name 'prompt' is not defined
+2026-02-04 14:54:23.016 | INFO     | services.gemini_service:get_embeddings:648 - Attempting embeddings via OpenRouter...
+2026-02-04 14:54:24.425 | WARNING  | services.gemini_service:get_embeddings:658 - OpenRouter embeddings failed, falling back to Google: 'charmap' codec can't encode character '\u2713' in position 7: character maps to <undefined>
+2026-02-04 14:54:24.425 | INFO     | services.gemini_service:get_embeddings:664 - Attempting embeddings via Direct Google Gemini...
+2026-02-04 14:54:24.628 | ERROR    | services.gemini_service:get_embeddings:684 - Direct Google embedding failed: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. 
+API Key present: True
+OpenRouter Key present: True (Ends with: ...d3da)
+
+Testing Chat Completion...
+Chat Response: ?????????? ??????????????? ? @dplusskin ?...
+
+Testing Embeddings...
+DEBUG: Attempting embeddings via OpenRouter...
+DEBUG: Entering _get_embeddings_openrouter_sync with key: True
+DEBUG: OpenRouter embeddings failed: 'charmap' codec can't encode character '\u2713' in position 7: character maps to <undefined>
+DEBUG: Attempting embeddings via Direct Google Gemini...
+DEBUG: Direct Google embedding failed: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. 
+DEBUG: All embedding attempts failed
+Result type: <class 'list'>
+Embedding is empty.

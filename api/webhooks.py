@@ -10,6 +10,7 @@ from fastapi import APIRouter, Request, Response, BackgroundTasks, HTTPException
 from loguru import logger
 from typing import Dict, Any, TYPE_CHECKING
 from config.settings import settings
+from utils.filters import is_relevant_post
 
 # Use deferred import to avoid circular dependency
 # main module is imported inside functions that need it
@@ -264,6 +265,11 @@ async def handle_comment(comment_id: str, comment_text: str, post_id: str = None
             post_details = main_module.facebook_service.get_post_details(post_id)
             post_caption = post_details.get("message", "")
             logger.debug(f"Post context: {post_caption[:100]}...")
+
+        # FILTER: Check if post is relevant (shared logic)
+        if not is_relevant_post(post_caption):
+            logger.info(f"Skipping comment on irrelevant post: {post_caption[:30]}...")
+            return
 
         # Generate context from knowledge base
         logger.debug(f"Searching knowledge base for: {comment_text[:50]}...")

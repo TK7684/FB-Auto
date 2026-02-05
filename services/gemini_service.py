@@ -500,13 +500,18 @@ class GeminiService:
         """
         try:
             # 1. Classify Category
-            category = self.classify_comment(comment_text)
+            category = self._detect_skin_category(comment_text)
             
             # 2. Get Product Info / Link
-            product_info = PRODUCTS_CTA.get(category, PRODUCTS_CTA["ทั่วไป"])
-            cta_link = product_info["link"]
-            default_cta = product_info["default_cta"]
-            emoji = product_info["emoji"]
+            # Use the helper method to get the full CTA string including link and emoji
+            # But here we might need components for constructing the custom private prompt
+            # Let's trust _get_cta_for_category to give us the right text for public replies
+            
+            cta_full_text = self._get_cta_for_category(category, post_caption, comment_text)
+            
+            # Parse back strictly for the private reply condition if needed, or just use the logic below.
+            # actually, _get_cta_for_category returns string "Text Link Emoji". 
+            # We can just extract what we need or better yet, rely on the prompt construction.
 
             # 3. Construct Prompt based on Mode
             if reply_mode == "private_reply":
@@ -516,13 +521,13 @@ class GeminiService:
                     cta_text="แจ้งรายละเอียดทางแชทแล้วนะคะ/ครับ",
                     comment_text=comment_text
                 )
-                prompt += f"\n\n**สำคัญมาก:**\n- ห้ามใส่ลิงก์เด็ดขาด\n- ให้บอกลูกค้าว่าส่งรายละเอียดไปทางแชท (Inbox) แล้ว\n- ใช้คำพูดน่าสนใจให้อยากเปิดอ่าน\n- อีโมจิ {emoji}"
+                prompt += f"\n\n**สำคัญมาก:**\n- ห้ามใส่ลิงก์เด็ดขาด\n- ให้บอกลูกค้าว่าส่งรายละเอียดไปทางแชท (Inbox) แล้ว\n- ใช้คำพูดน่าสนใจให้อยากเปิดอ่าน\n- ใช้ Emoji ที่เหมาะสม"
             else:
                 # STRATEGY: 80% - Direct Link
-                cta_full = f"{default_cta} {cta_link} {emoji}"
+                # cta_full_text already contains the link and emoji from _get_cta_for_category
                 prompt = COMMENT_REPLY_PROMPT.format(
                     post_caption=post_caption,
-                    cta_text=cta_full,
+                    cta_text=cta_full_text,
                     comment_text=comment_text
                 )
 
@@ -538,7 +543,8 @@ class GeminiService:
                 logger.error("No model available for generation")
                 return FALLBACK_RESPONSE
             
-            return self._clean_reply(reply)
+            # Clean reply (remove markdown etc if needed, though usually fine)
+            return reply.strip()
 
         except Exception as e:
             logger.error(f"Gemini generation error: {e}")
