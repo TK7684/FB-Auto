@@ -15,6 +15,7 @@ import time
 import random
 from pathlib import Path
 from datetime import datetime
+import pytz
 from loguru import logger
 
 # Add project root to path
@@ -35,9 +36,18 @@ from config.constants import PURCHASE_INTENT_KEYWORDS
 load_dotenv()
 
 # Configure logging
+def bangkok_time(record):
+    """Patcher to set log time to Asia/Bangkok."""
+    tz = pytz.timezone("Asia/Bangkok")
+    record["extra"]["timestamp"] = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
+    return record
+
 log_path = Path("logs/historical_cleanup.log")
 log_path.parent.mkdir(exist_ok=True)
-logger.add(log_path, rotation="10 MB", level="INFO")
+logger.remove() # Remove default handler
+logger.add(sys.stdout, format="<green>{extra[timestamp]}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>")
+logger.configure(patcher=bangkok_time)
+logger.add(log_path, rotation="10 MB", level="INFO", format="{extra[timestamp]} | {level: <8} | {name}:{function}:{line} - {message}")
 
 
 from utils.filters import is_relevant_post

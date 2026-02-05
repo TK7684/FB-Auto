@@ -16,6 +16,8 @@ import sys
 from pathlib import Path
 from typing import Dict, Optional
 import os
+import pytz
+from datetime import datetime
 
 from config.settings import settings
 from services.rate_limiter import RateLimiter, get_rate_limiter
@@ -31,17 +33,24 @@ facebook_service: Optional[FacebookService] = None
 gemini_service: Optional[GeminiService] = None
 
 # Configure logging
+def bangkok_time(record):
+    """Patcher to set log time to Asia/Bangkok."""
+    tz = pytz.timezone("Asia/Bangkok")
+    record["extra"]["timestamp"] = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
+    return record
+
 logger.remove()
 logger.add(
     sys.stdout,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    format="<green>{extra[timestamp]}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
     level=settings.log_level
 )
+logger.configure(patcher=bangkok_time)
 logger.add(
     "logs/app.log",
     rotation="1 day",
     retention="30 days",
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
+    format="{extra[timestamp]} | {level: <8} | {name}:{function}:{line} - {message}"
 )
 
 
