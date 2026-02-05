@@ -161,7 +161,12 @@ async def run_cleanup(max_replies: int = 30, post_count: int = 50):
                             # Combine post and comment for better search context
                             query_for_search = f"{user_msg} {post_context[:100]}"
                             # Get minimal relevant context (only 1-2 chunks to keep it fast/cheap)
-                            context_text = knowledge_base.search(query_for_search, limit=2)
+                            context_text = knowledge_base.generate_context(
+                                query_for_search, 
+                                include_qa=True, 
+                                top_products=2, 
+                                top_qa=1
+                            )
                             if context_text:
                                 logger.info("  + Added RAG context to reply generation")
                         except Exception as rag_err:
