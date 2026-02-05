@@ -67,20 +67,23 @@ async def lifespan(app: FastAPI):
 
         # Initialize knowledge base
         logger.info("Initializing knowledge base...")
-        knowledge_base = get_knowledge_base(
-            persist_dir=settings.chroma_persist_dir
-        )
+        try:
+            knowledge_base = get_knowledge_base(
+                persist_dir=settings.chroma_persist_dir
+            )
 
-        # Load products if CSV exists
-        csv_path = Path("data/products.csv")
-        if csv_path.exists():
-            product_count = knowledge_base.load_products_from_csv(str(csv_path))
-            logger.info(f"✓ Loaded {product_count} products from CSV")
-        else:
-            logger.warning(f"Products CSV not found at {csv_path}")
+            # Load products if CSV exists
+            csv_path = Path("data/products.csv")
+            if csv_path.exists():
+                product_count = knowledge_base.load_products_from_csv(str(csv_path))
+                logger.info(f"✓ Loaded {product_count} products from CSV")
+            else:
+                logger.warning(f"Products CSV not found at {csv_path}")
 
-        logger.info(f"✓ Knowledge base: {knowledge_base.get_product_count()} products, "
-                   f"{knowledge_base.get_qa_count()} Q&A pairs")
+            logger.info(f"✓ Knowledge base: {knowledge_base.get_product_count()} products, "
+                       f"{knowledge_base.get_qa_count()} Q&A pairs")
+        except Exception as kb_err:
+             logger.error(f"⚠ Knowledge Base failed to load (RAG features disabled): {kb_err}")
 
         # Initialize Gemini service
         logger.info("Initializing Gemini AI service...")

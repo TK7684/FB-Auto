@@ -485,7 +485,8 @@ class GeminiService:
         self,
         comment_text: str,
         post_caption: str = "",
-        reply_mode: str = "public_link"
+        reply_mode: str = "public_link",
+        context: str = ""
     ) -> str:
         """
         Generate a reply using Gemini.
@@ -494,6 +495,7 @@ class GeminiService:
             comment_text: The user's comment
             post_caption: Context from the post
             reply_mode: "public_link" (80%) or "private_reply" (20%)
+            context: Additional product context (RAG)
 
         Returns:
             Generated reply text
@@ -503,16 +505,8 @@ class GeminiService:
             category = self._detect_skin_category(comment_text)
             
             # 2. Get Product Info / Link
-            # Use the helper method to get the full CTA string including link and emoji
-            # But here we might need components for constructing the custom private prompt
-            # Let's trust _get_cta_for_category to give us the right text for public replies
-            
             cta_full_text = self._get_cta_for_category(category, post_caption, comment_text)
             
-            # Parse back strictly for the private reply condition if needed, or just use the logic below.
-            # actually, _get_cta_for_category returns string "Text Link Emoji". 
-            # We can just extract what we need or better yet, rely on the prompt construction.
-
             # 3. Construct Prompt based on Mode
             if reply_mode == "private_reply":
                 # STRATEGY: 20% - Soft sell, no link, say "Check Inbox"
@@ -524,12 +518,16 @@ class GeminiService:
                 prompt += f"\n\n**สำคัญมาก:**\n- ห้ามใส่ลิงก์เด็ดขาด\n- ให้บอกลูกค้าว่าส่งรายละเอียดไปทางแชท (Inbox) แล้ว\n- ใช้คำพูดน่าสนใจให้อยากเปิดอ่าน\n- ใช้ Emoji ที่เหมาะสม"
             else:
                 # STRATEGY: 80% - Direct Link
-                # cta_full_text already contains the link and emoji from _get_cta_for_category
                 prompt = COMMENT_REPLY_PROMPT.format(
                     post_caption=post_caption,
                     cta_text=cta_full_text,
                     comment_text=comment_text
                 )
+                
+            # --- RAG CONTEXT INJECTION ---
+            if context:
+                prompt += f"\n\n## ข้อมูลสินค้าเพิ่มเติม (ใช้ประกอบการตอบหากจำเป็น)\n{context}"
+            # -----------------------------
 
             # 4. Call Gemini
             if self.use_openrouter:
@@ -592,10 +590,19 @@ class GeminiService:
             True if connection successful
         """
         try:
-            response = self.model.generate_content("สวัสดี")
-            if response and response.text:
-                logger.info(f"✓ Gemini connection test successful: {response.text[:50]}")
-                return True
+            if self.use_openrouter:
+                 # Simple check for OpenRouter key presence as a sync proxy for health
+                 # Ideally, we would make a sync HTTP request here, but for startup speed:
+                 if self.openrouter_key:
+                     logger.info(f"✓ OpenRouter configured with key (skipping sync network test)")
+                     return True
+                 return False
+
+            if self.model:
+                response = self.model.generate_content("สวัสดี")
+                if response and response.text:
+                    logger.info(f"✓ Gemini connection test successful: {response.text[:50]}")
+                    return True
         except Exception as e:
             logger.error(f"Gemini connection test failed: {e}")
 

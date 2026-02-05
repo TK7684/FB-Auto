@@ -24,10 +24,11 @@ from dotenv import load_dotenv
 import httpx
 
 from config.settings import settings
-from utils.filters import is_relevant_post
+from utils.filters import is_relevant_post, is_ignored_user
 from services.gemini_service import get_gemini_service
 from services.facebook_service import get_facebook_service
 from services.rate_limiter import get_rate_limiter
+from services.knowledge_base import get_knowledge_base
 from config.constants import PURCHASE_INTENT_KEYWORDS
 
 # Load environment variables
@@ -66,6 +67,14 @@ async def run_cleanup(max_replies: int = 30, post_count: int = 50):
     # Initialize Services
     gemini_service = get_gemini_service()
     facebook_service = get_facebook_service(get_rate_limiter())
+    
+    # Initialize RAG (Safe mode)
+    knowledge_base = None
+    try:
+        knowledge_base = get_knowledge_base(settings.chroma_persist_dir)
+        logger.info(f"✓ RAG Knowledge Base loaded: {knowledge_base.get_product_count()} products")
+    except Exception as e:
+        logger.warning(f"⚠ RAG Knowledge Base failed to load for cleanup: {e}")
 
     replies_sent = 0
 
@@ -118,6 +127,11 @@ async def run_cleanup(max_replies: int = 30, post_count: int = 50):
                     # Skip own comments
                     if user_id == page_id:
                         continue
+                        
+                    # Skip ignored users
+                    if is_ignored_user(user_name):
+                        logger.info(f"Skipping comment from ignored user: {user_name}")
+                        continue
 
                     # Check for existing admin reply
                     replies = comment.get("comments", {}).get("data", [])
@@ -130,12 +144,26 @@ async def run_cleanup(max_replies: int = 30, post_count: int = 50):
 
                     logger.info(f"Found match: {user_name} said '{user_msg[:30]}...'")
                     
+                    # RAG Context Retrieval
+                    context_text = ""
+                    if knowledge_base:
+                        try:
+                            # Combine post and comment for better search context
+                            query_for_search = f"{user_msg} {post_context[:100]}"
+                            # Get minimal relevant context (only 1-2 chunks to keep it fast/cheap)
+                            context_text = knowledge_base.search(query_for_search, limit=2)
+                            if context_text:
+                                logger.info("  + Added RAG context to reply generation")
+                        except Exception as rag_err:
+                            logger.error(f"  - RAG search failed: {rag_err}")
+
                     # Generate AI Reply
                     try:
                         reply_text = await gemini_service.generate_reply(
                             comment_text=user_msg,
                             post_caption=post_context,
-                            reply_mode="public_link" # Force public for old posts
+                            reply_mode="public_link", # Force public for old posts
+                            context=context_text     # Pass the knowledge
                         )
 
                         if reply_text:

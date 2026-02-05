@@ -10,7 +10,7 @@ from fastapi import APIRouter, Request, Response, BackgroundTasks, HTTPException
 from loguru import logger
 from typing import Dict, Any, TYPE_CHECKING
 from config.settings import settings
-from utils.filters import is_relevant_post
+from utils.filters import is_relevant_post, is_ignored_user
 
 # Use deferred import to avoid circular dependency
 # main module is imported inside functions that need it
@@ -167,8 +167,16 @@ async def process_feed_change(change: Dict[str, Any]):
                 comment_id = value["comment_id"]
                 comment_text = value["message"]
                 post_id = value.get("post_id")
+                
+                # Extract user name from the payload if available
+                user_name = value.get("from", {}).get("name", "")
 
-                logger.info(f"💬 Comment {comment_id} on post {post_id}: {comment_text[:100]}...")
+                logger.info(f"💬 Comment {comment_id} on post {post_id} from {user_name}: {comment_text[:100]}...")
+                
+                # Check ignored user
+                if is_ignored_user(user_name):
+                    logger.info(f"Skipping comment from ignored user: {user_name}")
+                    return
 
                 # Check feature flag
                 if not settings.enable_comment_replies:

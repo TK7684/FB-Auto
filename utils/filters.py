@@ -13,6 +13,26 @@ NEGATIVE_KEYWORDS = [
     "อาคารพาณิชย์"
 ]
 
+# Users to ignore (e.g., specific admins or spammers)
+IGNORED_USERS = [
+    "Treepehch Kwangkhwang"
+]
+
+def is_ignored_user(name: str) -> bool:
+    """
+    Check if the user is in the ignored list.
+    
+    Args:
+        name (str): The user's name.
+        
+    Returns:
+        bool: True if user should be ignored.
+    """
+    if not name:
+        return False
+        
+    return name in IGNORED_USERS
+
 def is_relevant_post(text: str) -> bool:
     """
     Check if the post is relevant to the product line.

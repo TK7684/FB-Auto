@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  # 1. Main Bot Service (Webhook & API)
+  bot:
+    build: .
+    container_name: dplus_bot_api
+    restart: always
+    command: python main.py
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./.env:/app/.env
+    ports:
+      - "8000:8000"
+    environment:
+      - SERVER_HOST=0.0.0.0
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # 2. Historical Cleanup Runner (24/7 Background Task)
+  cleanup_runner:
+    build: .
+    container_name: dplus_cleanup_worker
+    restart: always
+    command: python scripts/cleanup_runner.py
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./.env:/app/.env
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+# Optional: Add Cloudflare Tunnel if you want to deploy without opening ports
+# tunnel:
+#   image: cloudflare/cloudflared
+#   restart: always
+#   command: tunnel run
+#   environment:
+#     - TUNNEL_TOKEN=${CLOUDFLARED_TOKEN}
