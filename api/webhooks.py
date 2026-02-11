@@ -35,8 +35,7 @@ def save_chat_status(action: str = "processed"):
     except Exception as e:
         logger.error(f"Failed to save chat status: {e}")
 
-# Use deferred import to avoid circular dependency
-# main module is imported inside functions that need it
+# Deferred import to avoid circular dependency
 if TYPE_CHECKING:
     import main
 
@@ -57,7 +56,6 @@ async def verify_webhook(
 
     Returns the challenge if verification successful.
     """
-    # Get query parameters - Facebook uses hub.mode, hub.verify_token, hub.challenge
     params = dict(request.query_params)
     mode = params.get("hub.mode")
     token = params.get("hub.verify_token")
@@ -66,7 +64,7 @@ async def verify_webhook(
     logger.info(f"Webhook verification request: mode={mode}, token={token[:10] if token else 'None'}...")
 
     import main as main_module
-    
+
     if main_module.facebook_service and mode and token and challenge:
         result = main_module.facebook_service.verify_webhook(mode, token, challenge)
         if result:
@@ -190,12 +188,12 @@ async def process_feed_change(change: Dict[str, Any]):
                 comment_id = value["comment_id"]
                 comment_text = value["message"]
                 post_id = value.get("post_id")
-                
+
                 # Extract user name from the payload if available
                 user_name = value.get("from", {}).get("name", "")
 
                 logger.info(f"💬 Comment {comment_id} on post {post_id} from {user_name}: {comment_text[:100]}...")
-                
+
                 # Check ignored user
                 if is_ignored_user(user_name):
                     logger.info(f"Skipping comment from ignored user: {user_name}")
@@ -230,7 +228,7 @@ async def handle_incoming_message(sender_id: str, message_text: str):
         message_text: Message text
     """
     import main as main_module
-    
+
     try:
         # Generate context from knowledge base
         logger.debug(f"Searching knowledge base for: {message_text[:50]}...")
@@ -271,7 +269,7 @@ async def handle_incoming_message(sender_id: str, message_text: str):
             except Exception as e:
                 logger.error(f"Failed to log chat: {e}")
 
-            # Optionally save Q&A to knowledge base
+            # Save Q&A to knowledge base
             main_module.knowledge_base.add_qa_pair(
                 question=message_text,
                 answer=response,
@@ -294,23 +292,19 @@ async def handle_incoming_message(sender_id: str, message_text: str):
         logger.error(f"Error handling message: {e}")
 
 
-    except Exception as e:
-        logger.error(f"Error handling comment: {e}")
-
-
 async def handle_comment(comment_id: str, comment_text: str, post_id: str = None):
     """
     Handle a page comment with post context awareness.
-    
+
     Args:
         comment_id: Facebook comment ID
         comment_text: Comment text
         post_id: Facebook post ID (to fetch caption for context)
     """
     import main as main_module
-    
+
     try:
-        # 1. STRICT FILTER: Check for purchase intent keywords first
+        # STRICT FILTER: Check for purchase intent keywords first
         if not main_module.gemini_service._is_purchase_intent(comment_text):
             logger.info(f"Skipping comment (no purchase intent): {comment_text[:50]}...")
             return
@@ -318,7 +312,7 @@ async def handle_comment(comment_id: str, comment_text: str, post_id: str = None
         # Fetch post caption for context
         post_caption = ""
         if post_id and main_module.facebook_service:
-            post_details = main_module.facebook_service.get_post_details(post_id)
+            post_details = await main_module.facebook_service.get_post_details(post_id)
             post_caption = post_details.get("message", "")
             logger.debug(f"Post context: {post_caption[:100]}...")
 
@@ -382,7 +376,7 @@ async def handle_comment(comment_id: str, comment_text: str, post_id: str = None
             except Exception as e:
                 logger.error(f"Failed to save memory: {e}")
 
-            # Optionally save Q&A to knowledge base
+            # Save Q&A to knowledge base
             main_module.knowledge_base.add_qa_pair(
                 question=comment_text,
                 answer=response,
