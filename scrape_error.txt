@@ -1,0 +1,1 @@
+2026-02-03 16:13:56.103 | ERROR    | __main__:<module>:26 - facebook-scraper not installed. Run: pip install facebook-scraper

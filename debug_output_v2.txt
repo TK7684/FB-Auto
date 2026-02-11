@@ -1,0 +1,18 @@
+C:\Users\ttapk\PycharmProjects\pythonProject\AI bot for FB page\services\gemini_service.py:8: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+1. Starting debug import...
+2. Python executable: C:\Users\ttapk\AppData\Local\Programs\Python\Python312\python.exe
+3. CWD: C:\Users\ttapk\PycharmProjects\pythonProject\AI bot for FB page
+4. Added to path: C:\Users\ttapk\PycharmProjects\pythonProject\AI bot for FB page
+5. Importing main...
+6. Successfully imported main!
+7. Importing uvicorn...
+8. Successfully imported uvicorn!
+9. Debug complete.

@@ -1,0 +1,57 @@
+# Environment variables
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+
+# Data
+data/knowledge_base/*
+!data/knowledge_base/.gitkeep
+data/scraped_data/*
+!data/scraped_data/.gitkeep
+
+# ChromaDB
+chroma/
+.chroma/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cloudflare
+*.json
+!config.yml

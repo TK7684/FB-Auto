@@ -1,0 +1,26 @@
+C:\Users\ttapk\PycharmProjects\pythonProject\AI bot for FB page\services\gemini_service.py:8: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+INFO:__main__:testing OpenRouter configuration...
+INFO:__main__:OpenRouter Key configured: Yes
+INFO:__main__:Base URL: https://openrouter.ai/api/v1
+2026-02-03 15:30:02.664 | INFO     | services.memory_service:_load_memory:26 - Loaded 2 items from memory.
+2026-02-03 15:30:02.665 | INFO     | services.gemini_service:__init__:80 - Gemini service initialized with OpenRouter model: gemini-1.0-pro
+INFO:__main__:\u2713 Service is using OpenRouter backend
+INFO:__main__:Testing connection...
+INFO:httpx:HTTP Request: GET https://openrouter.ai/api/v1/models "HTTP/1.1 200 OK"
+2026-02-03 15:30:03.418 | INFO     | services.gemini_service:test_connection_async:555 - \u2713 OpenRouter connection test successful
+INFO:__main__:\u2713 Connection test successful
+INFO:__main__:Testing generation...
+INFO:httpx:HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 400 Bad Request"
+2026-02-03 15:30:04.199 | ERROR    | services.gemini_service:_generate_via_openrouter:474 - OpenRouter API error: 400 - {"error":{"message":"gemini-1.0-pro is not a valid model ID","code":400},"user_id":"user_38shfbZwe6uG2gpCRhArIjHdc2H"}
+INFO:httpx:HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 400 Bad Request"
+2026-02-03 15:30:04.331 | ERROR    | services.gemini_service:_generate_via_openrouter:474 - OpenRouter API error: 400 - {"error":{"message":"gemini-1.0-pro is not a valid model ID","code":400},"user_id":"user_38shfbZwe6uG2gpCRhArIjHdc2H"}
+INFO:__main__:Response: \u0e2a\u0e19\u0e43\u0e08\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32 \u0e17\u0e31\u0e01\u0e44\u0e25\u0e19\u0e4c\u0e21\u0e32\u0e40\u0e25\u0e22\u0e04\u0e48\u0e30 \U0001f449 @dplusskin \U0001f495
+INFO:__main__:\u2713 Test completed

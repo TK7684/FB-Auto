@@ -1,0 +1,26 @@
+C:\Users\ttapk\PycharmProjects\pythonProject\AI bot for FB page\services\gemini_service.py:8: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+2026-02-01 20:37:59.566 | INFO     | services.memory_service:_load_memory:26 - Loaded 2 items from memory.
+2026-02-01 20:37:59.569 | INFO     | services.memory_service:save_memory:39 - Memory saved successfully.
+2026-02-01 20:37:59.572 | INFO     | services.memory_service:save_memory:39 - Memory saved successfully.
+=== Testing Memory Module Logic ===
+
+[1] Adding test memories...
+
+[2] Testing Retrieval...
+Traceback (most recent call last):
+  File "C:\Users\ttapk\PycharmProjects\pythonProject\AI bot for FB page\scripts\test_memory_logic.py", line 76, in <module>
+    test_memory_logic()
+  File "C:\Users\ttapk\PycharmProjects\pythonProject\AI bot for FB page\scripts\test_memory_logic.py", line 39, in test_memory_logic
+    print(f"\u2713 Found similar memory: {similar[0]['question']}")
+  File "C:\Users\ttapk\AppData\Local\Programs\Python\Python312\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2713' in position 0: character maps to <undefined>

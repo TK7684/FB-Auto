@@ -1,0 +1,19 @@
+1. Starting debug bisect...
+Importing config.settings... DONE (3.47s)
+Importing services.rate_limiter... DONE (0.51s)
+C:\Users\ttapk\PycharmProjects\pythonProject\AI bot for FB page\services\gemini_service.py:8: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+Importing services.gemini_service... DONE (57.44s)
+Importing services.facebook_service... DONE (0.12s)
+Importing services.knowledge_base... DONE (116.94s)
+Importing api.webhooks... FAIL: partially initialized module 'api.webhooks' has no attribute 'router' (most likely due to a circular import)
+Importing api.health... DONE (0.00s)
+Importing main... DONE (0.01s)
+Bisect complete.

@@ -1,0 +1,12 @@
+# Cloudflare Tunnel Configuration for D Plus Skin Bot
+# Tunnel: Nong-D (afda1849-f5e5-42fe-9af7-1bda3e0ebb4d)
+
+tunnel: afda1849-f5e5-42fe-9af7-1bda3e0ebb4d
+credentials-file: C:\Users\ttapk\.cloudflared\afda1849-f5e5-42fe-9af7-1bda3e0ebb4d.json
+
+# Simple configuration - just forward all traffic to your bot
+ingress:
+  - hostname: nong-d.trycloudflare.com
+    service: http://localhost:8000
+  # Fallback for other paths
+  - service: http_status:404
