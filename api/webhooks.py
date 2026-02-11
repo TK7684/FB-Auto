@@ -259,12 +259,14 @@ async def handle_incoming_message(sender_id: str, message_text: str):
 
             # Log to Google Sheets
             try:
-                from services.google_sheet_service import get_google_sheet_service
-                sheet_service = get_google_sheet_service()
-                sheet_service.log_chat(
-                    sender_id=sender_id,
+                from services.sheets_logger import log_to_sheet
+                log_to_sheet(
+                    bot_name="Chat Operator",
+                    action="DM Reply",
+                    user_name=f"User {sender_id}",
                     user_message=message_text,
-                    bot_response=response
+                    bot_reply=response,
+                    status="success"
                 )
             except Exception as e:
                 logger.error(f"Failed to log chat: {e}")
@@ -355,15 +357,16 @@ async def handle_comment(comment_id: str, comment_text: str, post_id: str = None
 
             # Log to Google Sheets
             try:
-                from services.google_sheet_service import get_google_sheet_service
-                sheet_service = get_google_sheet_service()
-                sheet_service.log_comment(
+                from services.sheets_logger import log_to_sheet
+                log_to_sheet(
+                    bot_name="Comment Bot",
+                    action="Comment Reply",
+                    user_name="User",
+                    user_message=comment_text,
+                    bot_reply=response,
+                    comment_id=comment_id,
                     post_id=post_id,
-                    post_caption=post_caption,
-                    comment_message=comment_text,
-                    reply_message=response,
-                    comment_link=f"https://www.facebook.com/{post_id}?comment_id={comment_id}",
-                    status="Success"
+                    status="success"
                 )
             except Exception as e:
                 logger.error(f"Failed to log comment: {e}")
