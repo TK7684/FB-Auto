@@ -38,10 +38,10 @@ services:
         limits:
           memory: 256M
 
-# Optional: Add Cloudflare Tunnel if you want to deploy without opening ports
-# tunnel:
-#   image: cloudflare/cloudflared
-#   restart: always
-#   command: tunnel run
-#   environment:
-#     - TUNNEL_TOKEN=${CLOUDFLARED_TOKEN}
+  # 3. Cloudflare Tunnel (Exposes Bot to Internet)
+  tunnel:
+    image: cloudflare/cloudflared
+    restart: always
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARED_TOKEN}

@@ -1,9 +1,9 @@
 # deploy_remote.ps1
 # Automates deployment to remote Tailscale host
 
-$REMOTE_HOST = "100.85.171.112"
-$REMOTE_USER = "dplus"
-$REMOTE_DIR = "C:/Users/dplus/fb-bot"
+$REMOTE_HOST = "100.98.140.57"
+$REMOTE_USER = "tk578"
+$REMOTE_DIR = "~/fb-bot"
 $LOCAL_BUNDLE = "bundle.tar.gz"
 
 Write-Host "Starting Deployment to ${REMOTE_USER}@${REMOTE_HOST}..."
@@ -30,8 +30,8 @@ scp $LOCAL_BUNDLE "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/${LOCAL_BUNDLE}"
 
 # 5. Execute Remote Commands
 Write-Host "Executing Docker build on remote..."
-$CMD = "cd $REMOTE_DIR; tar -xzf $LOCAL_BUNDLE; docker-compose up -d --build; docker image prune -f"
-ssh ${REMOTE_USER}@${REMOTE_HOST} "powershell -Command ""$CMD"""
+$CMD = "cd $REMOTE_DIR && tar -xzf $LOCAL_BUNDLE && docker compose up -d --build && docker image prune -f"
+ssh ${REMOTE_USER}@${REMOTE_HOST} "$CMD"
 
 # 6. Cleanup
 if (Test-Path $LOCAL_BUNDLE) { Remove-Item $LOCAL_BUNDLE }

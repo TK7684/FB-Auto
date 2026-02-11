@@ -23,6 +23,18 @@ from config.settings import settings
 from services.gemini_service import get_gemini_service
 from services.facebook_service import get_facebook_service
 from services.rate_limiter import get_rate_limiter
+import json
+
+STATUS_FILE = Path("data/status_comment.json")
+
+def save_status(data: dict):
+    """Save monitor status to JSON file."""
+    try:
+        STATUS_FILE.parent.mkdir(exist_ok=True)
+        with open(STATUS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Failed to save status: {e}")
 
 # Load environment variables
 load_dotenv()
@@ -170,6 +182,25 @@ async def run_monitor_cycle(limit_posts: int = 5):
                         
                     except Exception as e:
                         logger.error(f"Error responding to comment {comment_id}: {e}")
+
+            # Save Status
+            rate_limit_stats = rate_limiter.get_all_stats()
+            # Convert objects to dicts
+            rl_data = {}
+            for k, v in rate_limit_stats.items():
+                rl_data[k] = {"usage_percent": v.usage_percent, "remaining": v.remaining_calls}
+            
+            status_data = {
+                "bot_type": "comment",
+                "bot_name": "Comment Sweeper",
+                "last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "status": "active",
+                "processed_count": processed_count,
+                "reply_count": reply_count,
+                "rate_limits": rl_data,
+                "timestamp": time.time()
+            }
+            save_status(status_data)
 
             logger.info(f"Cycle Complete: Processed {processed_count} relevant comments, sent {reply_count} replies.")
             

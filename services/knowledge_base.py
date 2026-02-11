@@ -5,7 +5,7 @@ This module provides semantic search capabilities for products and Q&A pairs.
 Uses sentence transformers for Thai language embeddings and ChromaDB for vector storage.
 """
 
-import pandas as pd
+# import pandas as pd # Lazy loaded in method
 # Move heavy imports inside class to avoid blocking startup
 # import chromadb
 # from chromadb.config import Settings as ChromaSettings
@@ -14,9 +14,11 @@ from typing import List, Dict, Optional, Any
 from loguru import logger
 from pathlib import Path
 import json
+import hashlib
 from datetime import datetime
 import chromadb
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
+from functools import lru_cache
 
 from services.gemini_service import get_gemini_service
 
@@ -99,6 +101,19 @@ class KnowledgeBase:
             return 0
 
         try:
+            # Lazy import pandas
+            import pandas as pd
+            
+            # Check hash to avoid redundant reload
+            hash_file = csv_file.with_suffix('.hash')
+            current_hash = hashlib.md5(csv_file.read_bytes()).hexdigest()
+            
+            if not clear_existing and hash_file.exists():
+                stored_hash = hash_file.read_text().strip()
+                if stored_hash == current_hash and self.products_collection.count() > 0:
+                    logger.info(f"Products CSV hash matches ({current_hash[:8]}). Skipping reload.")
+                    return self.products_collection.count()
+            
             # Read CSV - the file has English headers first, then Thai headers
             # Skip the first 2 rows (English headers + empty row) to get to Thai headers
             df = pd.read_csv(csv_file, encoding="utf-8", skiprows=2, on_bad_lines='skip')
@@ -110,18 +125,6 @@ class KnowledgeBase:
 
             # Column mapping: Thai columns -> English columns
             column_mapping = {
-                "ชื่อสินค้า": "Product_Name",
-                "คำอธิบายสินค้า": "Description",
-                "ลิงก์สินค้า": "Link",
-                "Link": "Link",
-            }
-
-            # Rename Thai columns to English
-            df = df.rename(columns=column_mapping)
-
-            # Column mapping: support both English and Thai column names
-            column_mapping = {
-                # Thai columns -> English columns
                 "ชื่อสินค้า": "Product_Name",
                 "คำอธิบายสินค้า": "Description",
                 "ลิงก์สินค้า": "Link",
@@ -216,7 +219,9 @@ class KnowledgeBase:
                 ids=ids
             )
 
-            logger.info(f"Successfully loaded {len(documents)} products to knowledge base")
+            # Save new hash
+            hash_file.write_text(current_hash)
+            logger.info(f"Successfully loaded {len(documents)} products and updated hash")
             return len(documents)
 
         except Exception as e:
@@ -317,6 +322,7 @@ class KnowledgeBase:
             logger.error(f"Error searching Q&A: {e}")
             return []
 
+    @lru_cache(maxsize=128)
     def generate_context(
         self,
         query: str,

@@ -1,0 +1,12 @@
+Testing Google Sheets Connection...
+2026-02-06 15:57:58.900 | INFO     | services.google_sheet_service:_connect:40 - Γ£ô Connected to Google Sheets
+Γ£à Connection Successful!
+File Path: service_account.json
+Sheet ID: 1TPv93ZxOHLqvUWcrnZhXpx1HCjhjdQkWEsSCxjO94qs
+
+Available Worksheets (with repr):
+ - 'Comment'
+ - 'Chat'
+
+Attempting to access 'Inbox'...
+Γ¥î Failed: Inbox

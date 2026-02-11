@@ -1,20 +1,31 @@
 
 import json
 import random
+import time
+import threading
 from typing import List, Dict, Optional
 from pathlib import Path
 from loguru import logger
 from datetime import datetime
 
+
 class MemoryService:
     """
     Service for Memory & Learning (Simple RAG).
     Stores successful Q&A pairs and retrieves them to improve future responses.
+
+    Optimized: Batches disk writes (every 10 items or 60s) instead of writing on each add.
     """
+
+    BATCH_SIZE = 10
+    FLUSH_INTERVAL = 60  # seconds
 
     def __init__(self, memory_file: str = "data/memory.json"):
         self.memory_file = Path(memory_file)
         self.memories: List[Dict] = []
+        self._dirty_count = 0
+        self._last_flush = time.time()
+        self._lock = threading.Lock()
         self._load_memory()
 
     def _load_memory(self):
@@ -32,29 +43,43 @@ class MemoryService:
             self.memories = []
 
     def save_memory(self):
-        """Save memory to JSON file."""
-        try:
-            with open(self.memory_file, "w", encoding="utf-8") as f:
-                json.dump(self.memories, f, ensure_ascii=False, indent=2)
-            logger.info("Memory saved successfully.")
-        except Exception as e:
-            logger.error(f"Error saving memory: {e}")
+        """Save memory to JSON file (explicit flush)."""
+        with self._lock:
+            try:
+                with open(self.memory_file, "w", encoding="utf-8") as f:
+                    json.dump(self.memories, f, ensure_ascii=False, indent=2)
+                self._dirty_count = 0
+                self._last_flush = time.time()
+            except Exception as e:
+                logger.error(f"Error saving memory: {e}")
+
+    def _maybe_flush(self):
+        """Flush to disk if batch threshold or time interval reached."""
+        should_flush = (
+            self._dirty_count >= self.BATCH_SIZE
+            or (time.time() - self._last_flush) > self.FLUSH_INTERVAL
+        )
+        if should_flush:
+            self.save_memory()
 
     def add_memory(self, question: str, answer: str, category: str = "general"):
-        """Add a new Q&A pair to memory."""
-        # Simple deduplication
-        for item in self.memories:
-            if item["question"] == question and item["answer"] == answer:
-                return
+        """Add a new Q&A pair to memory (batched write)."""
+        with self._lock:
+            # Simple deduplication
+            for item in self.memories:
+                if item["question"] == question and item["answer"] == answer:
+                    return
 
-        new_item = {
-            "question": question,
-            "answer": answer,
-            "category": category,
-            "timestamp": datetime.now().isoformat()
-        }
-        self.memories.append(new_item)
-        self.save_memory()
+            new_item = {
+                "question": question,
+                "answer": answer,
+                "category": category,
+                "timestamp": datetime.now().isoformat()
+            }
+            self.memories.append(new_item)
+            self._dirty_count += 1
+
+        self._maybe_flush()
 
     def find_similar(self, query: str, category: str = None, limit: int = 2) -> List[Dict]:
         """
@@ -75,11 +100,10 @@ class MemoryService:
         scored_memories = []
 
         for item in self.memories:
-            # Filter by category if provided
             if category and item.get("category") != category:
                 continue
 
-            # Calculate score (Jaccard similarity of words)
+            # Jaccard similarity
             item_tokens = set(item["question"].lower().split())
             intersection = query_tokens.intersection(item_tokens)
             union = query_tokens.union(item_tokens)
@@ -89,14 +113,12 @@ class MemoryService:
             else:
                 score = len(intersection) / len(union)
 
-            # Boost score if category matches exactly
             if category and item.get("category") == category:
                 score += 0.2
 
-            if score > 0.1:  # Threshold
+            if score > 0.1:
                 scored_memories.append((score, item))
 
-        # Sort by score descending
         scored_memories.sort(key=lambda x: x[0], reverse=True)
         
         return [m[1] for m in scored_memories[:limit]]
@@ -107,6 +129,11 @@ class MemoryService:
         if candidates:
             return random.choice(candidates)
         return None
+
+    def flush(self):
+        """Force flush any pending writes to disk."""
+        if self._dirty_count > 0:
+            self.save_memory()
 
 # Singleton instance
 _memory_service = None

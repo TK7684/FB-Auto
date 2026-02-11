@@ -1,0 +1,4 @@
+NAMES                  STATUS       CREATED AT
+dplus_cleanup_worker   Up 3 hours   2026-02-06 11:53:51 +0700 +07
+dplus_bot_api          Up 3 hours   2026-02-06 11:53:51 +0700 +07
+fb-bot-tunnel-1        Up 6 hours   2026-02-06 10:46:10 +0700 +07

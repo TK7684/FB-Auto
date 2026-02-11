@@ -354,6 +354,9 @@ class GeminiService:
         Returns:
             Generated response text
         """
+        # Prepare prompt
+        prompt = self._build_prompt(user_question, context, conversation_history)
+
         # TRY 1: OpenRouter (Primary)
         if self.openrouter_key:
             try:

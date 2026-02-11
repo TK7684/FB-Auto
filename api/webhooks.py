@@ -11,6 +11,29 @@ from loguru import logger
 from typing import Dict, Any, TYPE_CHECKING
 from config.settings import settings
 from utils.filters import is_relevant_post, is_ignored_user
+import json
+import time
+from datetime import datetime
+from pathlib import Path
+
+STATUS_FILE = Path("data/status_chat.json")
+
+def save_chat_status(action: str = "processed"):
+    """Save chat bot status."""
+    try:
+        data = {
+            "bot_type": "chat",
+            "bot_name": "Chat Operator",
+            "last_active": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "status": "active",
+            "timestamp": time.time(),
+            "last_action": action
+        }
+        STATUS_FILE.parent.mkdir(exist_ok=True)
+        with open(STATUS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Failed to save chat status: {e}")
 
 # Use deferred import to avoid circular dependency
 # main module is imported inside functions that need it
@@ -232,6 +255,14 @@ async def handle_incoming_message(sender_id: str, message_text: str):
 
         if success:
             logger.info(f"✓ Reply sent to {sender_id}")
+            save_chat_status(action=f"Replied to {sender_id}")
+
+            # Log to Google Sheets
+            try:
+                from services.google_sheet_service import get_google_sheet_service
+                get_google_sheet_service().log_chat(sender_id, message_text, response)
+            except Exception as e:
+                logger.error(f"Failed to log chat: {e}")
 
             # Optionally save Q&A to knowledge base
             main_module.knowledge_base.add_qa_pair(
@@ -239,6 +270,16 @@ async def handle_incoming_message(sender_id: str, message_text: str):
                 answer=response,
                 source="dm"
             )
+
+            # Save to Memory Service (Tone Learning)
+            try:
+                main_module.gemini_service.memory_service.add_memory(
+                    question=message_text,
+                    answer=response,
+                    category="marketing"
+                )
+            except Exception as e:
+                logger.error(f"Failed to save chat memory: {e}")
         else:
             logger.error(f"✗ Failed to send reply to {sender_id}")
 

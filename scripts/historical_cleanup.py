@@ -30,6 +30,7 @@ from services.gemini_service import get_gemini_service
 from services.facebook_service import get_facebook_service
 from services.rate_limiter import get_rate_limiter
 from services.knowledge_base import get_knowledge_base
+from services.sheets_logger import log_to_sheet
 from config.constants import PURCHASE_INTENT_KEYWORDS
 
 # Load environment variables
@@ -81,12 +82,36 @@ async def run_cleanup(max_replies: int = 30, post_count: int = 50):
     # Initialize RAG (Safe mode)
     knowledge_base = None
     try:
+        if sys.platform == 'win32':
+             sys.stdout.reconfigure(encoding='utf-8')
+
         knowledge_base = get_knowledge_base(settings.chroma_persist_dir)
+        
+        # Ensure products are loaded (using optimized hash check)
+        csv_path = Path("data/products.csv")
+        if csv_path.exists():
+            knowledge_base.load_products_from_csv(str(csv_path))
+            
         logger.info(f"✓ RAG Knowledge Base loaded: {knowledge_base.get_product_count()} products")
     except Exception as e:
         logger.warning(f"⚠ RAG Knowledge Base failed to load for cleanup: {e}")
 
     replies_sent = 0
+
+    replies_sent = 0
+    pending_logs = []  # Buffer for batch logging
+
+    # Helper to flush logs
+    def flush_logs():
+        if not pending_logs:
+            return
+        try:
+            from services.google_sheet_service import get_google_sheet_service
+            logger.info(f"Flushing {len(pending_logs)} logs to Google Sheets...")
+            get_google_sheet_service().log_comment_batch(pending_logs)
+            pending_logs.clear()
+        except Exception as e:
+            logger.error(f"Failed to flush logs: {e}")
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         # 1. Fetch Posts with pagination
@@ -135,21 +160,59 @@ async def run_cleanup(max_replies: int = 30, post_count: int = 50):
                     user_name = comment.get("from", {}).get("name", "Unknown")
 
                     # Skip own comments
+                    # Skip own comments
                     if user_id == page_id:
+                        pending_logs.append({
+                            "post_id": post_id,
+                            "post_caption": post_context,
+                            "comment_message": user_msg,
+                            "reply_message": "",
+                            "comment_link": "",
+                            "status": "Skipped",
+                            "reason": "Self Comment"
+                        })
                         continue
                         
                     # Skip ignored users
                     if is_ignored_user(user_name):
                         logger.info(f"Skipping comment from ignored user: {user_name}")
+                        pending_logs.append({
+                            "post_id": post_id,
+                            "post_caption": post_context,
+                            "comment_message": user_msg,
+                            "reply_message": "",
+                            "comment_link": "",
+                            "status": "Skipped",
+                            "reason": f"Ignored User: {user_name}"
+                        })
                         continue
 
                     # Check for existing admin reply
                     replies = comment.get("comments", {}).get("data", [])
                     if any(r.get("from", {}).get("id") == page_id for r in replies):
+                        pending_logs.append({
+                            "post_id": post_id,
+                            "post_caption": post_context,
+                            "comment_message": user_msg,
+                            "reply_message": "",
+                            "comment_link": "",
+                            "status": "Skipped",
+                            "reason": "Already Replied"
+                        })
                         continue
 
                     # Check intent
+                    # Check intent
                     if not has_buying_intent(user_msg):
+                        pending_logs.append({
+                            "post_id": post_id,
+                            "post_caption": post_context,
+                            "comment_message": user_msg,
+                            "reply_message": "",
+                            "comment_link": "",
+                            "status": "Skipped",
+                            "reason": "No Buying Intent"
+                        })
                         continue
 
                     logger.info(f"Found match: {user_name} said '{user_msg[:30]}...'")
@@ -182,8 +245,8 @@ async def run_cleanup(max_replies: int = 30, post_count: int = 50):
                         )
 
                         if reply_text:
-                            # 20-30s SAFETY DELAY (Mimics human)
-                            delay = random.uniform(20.0, 45.0)
+                            # 10-20s SAFETY DELAY (reduced from 20-45s; global rate limiter protects us)
+                            delay = random.uniform(10.0, 20.0)
                             logger.info(f"Waiting {delay:.1f}s before replying (Anti-Spam Safety)...")
                             await asyncio.sleep(delay)
 
@@ -200,9 +263,64 @@ async def run_cleanup(max_replies: int = 30, post_count: int = 50):
                                 logger.info(f"✓ Success ({replies_sent}/{max_replies}): Replied to {user_name}")
                                 logger.info(f"  > Link: {comment_link}")
                                 logger.info(f"  > Comment: {user_msg[:50]}...")
+
+                                # Log to Google Sheets (fire-and-forget)
+                                log_to_sheet(
+                                    bot_name="Deep Cleaner",
+                                    action="comment_reply",
+                                    user_name=user_name,
+                                    user_message=user_msg,
+                                    bot_reply=reply_text,
+                                    comment_id=comment_id,
+                                    post_id=post_id,
+                                    page_id=settings.facebook_page_id,
+                                    status="success"
+                                )
+
+                                # Log to Buffer
+                                pending_logs.append({
+                                    "post_id": post_id,
+                                    "post_caption": post_context,
+                                    "comment_message": user_msg,
+                                    "reply_message": reply_text,
+                                    "comment_link": comment_link,
+                                    "status": "Replied",
+                                    "reason": "Success"
+                                })
+
+                                # Learn from Interaction (Knowledge Base - Facts)
+                                if knowledge_base:
+                                    try:
+                                        knowledge_base.add_qa_pair(
+                                            question=user_msg,
+                                            answer=reply_text,
+                                            source="comment",
+                                            metadata={"post_id": post_id, "comment_id": comment_id}
+                                        )
+                                        logger.info("  + Learned new QA pair (Facts)")
+                                    except Exception as kb_err:
+                                        logger.error(f"Failed to update KnowledgeBase: {kb_err}")
+
+                                # Learn from Interaction (Memory - Tone)
+                                try:
+                                    gemini_service.memory_service.add_memory(
+                                        question=user_msg,
+                                        answer=reply_text,
+                                        category="product"
+                                    )
+                                    logger.info("  + Updated Memory (Tone)")
+                                except Exception as mem_err:
+                                    logger.error(f"Failed to update Memory: {mem_err}")
                         
                     except Exception as e:
                         logger.error(f"Error in reply gen: {e}")
+                    
+                    # Flush periodically if buffer gets big
+                    if len(pending_logs) >= 10:
+                        flush_logs()
+
+            # Final flush
+            flush_logs()
 
             logger.info(f"--- Cleanup Complete! Sent {replies_sent} replies. ---")
 

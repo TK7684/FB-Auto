@@ -9,6 +9,29 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from config.settings import settings
 
 load_dotenv()
+import json
+import time
+from datetime import datetime
+from pathlib import Path
+
+STATUS_FILE = Path("data/status_post.json")
+
+def save_post_status(post_id: str):
+    """Save post bot status."""
+    try:
+        data = {
+            "bot_type": "post",
+            "bot_name": "FB Auto-Poster",
+            "last_active": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "status": "active",
+            "timestamp": time.time(),
+            "last_action": f"Created Draft {post_id}"
+        }
+        STATUS_FILE.parent.mkdir(exist_ok=True)
+        with open(STATUS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"Failed to save post status: {e}")
 
 class SandboxFacebookPoster:
     def __init__(self):
@@ -63,6 +86,7 @@ class SandboxFacebookPoster:
                 
                 post_id = result.get("id") or result.get("post_id")
                 print(f"Draft created successfully! ID: {post_id}")
+                save_post_status(post_id)
                 return post_id
 
             except httpx.HTTPStatusError as e:

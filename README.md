@@ -2,279 +2,147 @@
 
 AI-powered Facebook bot for D Plus Skin skincare business. The bot answers customer questions about products, provides recommendations, and handles both DMs and page comments automatically.
 
-## Features
+## 🏗️ System Architecture: The "Two-Bot" System
 
-- 🤖 **AI-Powered Responses** - Uses Gemini API for natural Thai language responses
+To ensure 100% reliability and compliance with Facebook's policies, the system runs two separate bots simultaneously:
+
+### 1. The Operator (`dplus_bot_api`)
+- **Role**: Instant Responder (Real-time)
+- **Channel**: Facebook Messenger (DMs)
+- **Mechanism**: **Webhooks**. Facebook pushes messages to the bot instantly via a secure **Cloudflare Tunnel**.
+- **Speed**: < 3 seconds
+- **Status**: Exposed to Public Internet (via Tunnel)
+
+### 2. The Sweeper (`dplus_cleanup_worker`)
+- **Role**: Comment Manager (Scheduled)
+- **Channel**: Facebook Page Comments
+- **Mechanism**: **Polling**. The bot wakes up every **60 minutes**, scans the last 50 posts for unreplied comments, answers them, and then goes back to sleep.
+- **Why?**: This "slow" approach is safer for comments and prevents "Spam" flags from Facebook.
+- **Status**: Private (No Internet Exposure needed)
+
+---
+
+## 🚀 Features
+
+- 🤖 **AI-Powered Responses** - Uses Gemini API (Flash 2.0) for natural Thai language responses
+- 📊 **Google Sheets Logging** - Logs all Chats and Comments to a shared Google Sheet in real-time
 - 📚 **Knowledge Base** - Semantic search using ChromaDB and sentence transformers
 - 🔒 **Rate Limiting** - Built-in protection to avoid Facebook API bans
-- 💬 **Multi-Channel** - Handles both Messenger DMs and page comments
 - 🌏 **Thai Language** - Specialized support for Thai skincare queries
 - 🎯 **Specialized for "ฝ้า"** - Enhanced handling for melasma/blemish queries
-- 📊 **Monitoring** - Health checks and metrics endpoints
-- 🆓 **100% Free** - Uses only free services
+- 🆓 **100% Free** - Uses only free services (Gemini Free Tier, Cloudflare Tunnel Free)
 
-## Tech Stack
+---
 
-- **Language**: Python 3.8+
-- **Web Framework**: FastAPI
-- **AI/LLM**: Gemini API (via Google or OpenRouter)
-- **Vector Database**: ChromaDB
-- **Embeddings**: Sentence Transformers (multilingual)
-- **Facebook**: Graph API (official, free)
-- **Hosting**: Cloudflare Tunnel (free)
+## 🛠️ Tech Stack
 
-## Installation
+- **Language**: Python 3.9+
+- **Framework**: FastAPI (for Webhooks) area
+- **AI/LLM**: Google Gemini 2.0 Flash
+- **Vector DB**: ChromaDB
+- **Tunneling**: Cloudflare Tunnel (Dockerized)
+- **Deployment**: Docker Compose on Ubuntu Server (`tk578`)
 
-### 1. Clone and Setup
+---
+
+## 📊 Google Sheets Logging
+
+The bot automatically logs activity to [Google Sheets](https://docs.google.com/spreadsheets/d/1TPv93ZxOHLqvUWcrnZhXpx1HCjhjdQkWEsSCxjO94qs/edit).
+
+### 1. Chats Tab
+Logs every direct message reply.
+- **Columns**: Date/Time, User ID, User Message, Bot Reply
+
+### 2. Comments Tab
+Logs every comment reply from the "Sweeper" bot.
+- **Columns**: Date/Time, Post ID, Post Caption, User Comment, Bot Reply, Link to Comment
+
+---
+
+## 📦 Deployment (Remote Server `tk578`)
+
+The bot is deployed on a remote Ubuntu server using Docker Compose.
+
+### Quick Deploy
+We use a specialized PowerShell script to bundle, upload, and deploy the bot in one click:
+
+```powershell
+.\deployment\deploy_tk578.ps1
+```
+
+This script:
+1. Bundles your local code (excluding junk files).
+2. Uploads `bundle.tar.gz`, `.env`, and `service_account.json`.
+3. SSHs into the server.
+4. Builds and Restarts Docker Containers.
+
+### Manual Commands (on Server)
 
 ```bash
-cd "C:\Users\ttapk\PycharmProjects\pythonProject\AI bot for FB page"
+# Check Status
+docker ps
 
-# Create virtual environment
-python -m venv venv
-venv\Scripts\activate
+# View Logs (Main Bot)
+docker logs -f dplus_bot_api
 
-# Install dependencies
-pip install -r requirements.txt
+# View Logs (Sweeper)
+docker logs -f dplus_cleanup_worker
 ```
 
-### 2. Configure Environment
+---
 
-```bash
-# Copy the example environment file
-copy .env.example .env
+## 🔧 Configuration
 
-# Edit .env with your credentials
-notepad .env
-```
+### Environment Variables (`.env`)
 
-Required environment variables:
-- `GEMINI_API_KEY` - Get from [Google AI Studio](https://makersuite.google.com/)
-- `FACEBOOK_APP_ID` - From [Meta Developers](https://developers.facebook.com/)
-- `FACEBOOK_PAGE_ACCESS_TOKEN` - Generate from your Facebook app
-- `FACEBOOK_PAGE_ID` - Your Facebook page ID
-- `FACEBOOK_WEBHOOK_VERIFY_TOKEN` - Create a random string
+- **AI**: `GEMINI_API_KEY`, `GEMINI_MODEL`
+- **Facebook**: `FACEBOOK_APP_ID`, `FACEBOOK_PAGE_ACCESS_TOKEN`, `FACEBOOK_PAGE_ID`
+- **Tunnel**: `CLOUDFLARED_TOKEN` (Required for Remote Access)
+- **Features**: `ENABLE_DM_REPLIES`, `ENABLE_COMMENT_REPLIES`
 
-Optional (for OpenRouter):
-- `OPENROUTER_API_KEY` - API key from OpenRouter (uses `google/gemini-2.0-flash-001` or comparable model)
+### Service Account (`service_account.json`)
 
-### 3. Prepare Product Data
+Required for Google Sheets logging. This file must be present in the root directory and contains the private key for the Google Service Account.
 
-The bot uses `data/products.csv` for product information. Update this with your actual products:
+---
 
-```csv
-Product_Name,Symptom_Target,Price,Promotion,Link,Description
-D Plus Whitening Serum,ฝ้า รอยดำ,890,Buy 2 Get 1 Free,https://shopee.link/...,Serum for whitening
-```
-
-### 4. Initialize Knowledge Base
-
-```bash
-# The bot will automatically load products on startup
-# Or manually test:
-python -c "from services.knowledge_base import KnowledgeBase; kb = KnowledgeBase(); print(kb.load_products_from_csv('data/products.csv'))"
-```
-
-## Running the Bot
-
-### Development
-
-```bash
-# Start the bot
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### Production
-
-```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
-```
-
-## Deployment with Cloudflare Tunnel
-
-### 1. Install Cloudflare Tunnel
-
-Download from: https://github.com/cloudflare/cloudflared/releases
-
-### 2. Create Tunnel
-
-```bash
-cloudflared tunnel create dplus-skin-bot
-```
-
-### 3. Configure Tunnel
-
-Create `config.yml`:
-
-```yaml
-tunnel: <your-tunnel-id>
-credentials-file: C:\Users\ttapk\.cloudflared\<tunnel-id>.json
-
-ingress:
-  - hostname: your-bot.your-domain.com
-    service: http://localhost:8000
-    path: /webhook/*
-  - service: http_status:404
-```
-
-### 4. Run Tunnel
-
-```bash
-cloudflared tunnel run dplus-skin-bot
-```
-
-### 5. Configure Facebook Webhook
-
-1. Go to [Meta Developer Portal](https://developers.facebook.com/)
-2. Navigate to your app → Webhooks
-3. Set webhook URL: `https://your-bot.your-domain.com/webhook`
-4. Set verify token (match your `.env`)
-5. Subscribe to: `messages`, `feed`, `comments`
-
-## API Endpoints
-
-### Webhook Endpoints
-
-- `GET /webhook` - Verify webhook with Facebook
-- `POST /webhook` - Receive Facebook events
-
-### Health & Monitoring
-
-- `GET /` - Bot information
-- `GET /health` - Health check
-- `GET /health/ready` - Readiness check
-- `GET /health/live` - Liveness check
-- `GET /health/metrics` - Rate limit metrics
-- `GET /health/config` - Configuration info
-
-## Testing
-
-```bash
-# Run unit tests (FastAPI TestClient)
-pytest tests/ -v
-
-# Verify OpenRouter connection
-python scripts/test_openrouter.py
-
-# Test knowledge base
-python -c "from services.knowledge_base import KnowledgeBase; kb = KnowledgeBase(); print(kb.search('ฝ้า'))"
-```
-
-## Rate Limits
-
-The bot uses conservative rate limits (85% of actual Facebook limits):
-
-| Endpoint | Limit | Safety Margin |
-|----------|-------|---------------|
-| Messenger Send (text) | 300/sec | 250/sec |
-| Messenger Send (media) | 10/sec | 8/sec |
-| Page API | Variable | 100/sec |
-| Private Replies | 750/hour | 700/hour |
-
-**Critical**: Never modify these values upward without understanding Facebook's rate limit policies.
-
-## Scraping Historical Data
-
-To build the knowledge base from your past Facebook posts:
-
-```bash
-# Full scrape (all time)
-python scripts/scrape_facebook.py --full --add-to-kb
-
-# Incremental (last 7 days)
-python scripts/scrape_facebook.py --days 7 --add-to-kb
-
-# Custom page
-python scripts/scrape_facebook.py --page yourpage --limit 100
-```
-
-## Special Features
-
-### "ฝ้า" (Melasma) Handling
-
-The bot has special handling for melasma queries:
-- Explains causes (hormonal, sun, medication)
-- Recommends products with effective ingredients
-- Emphasizes sunscreen use
-- Sets realistic expectations (4-8 weeks)
-- Provides prevention tips
-
-### Product Recommendations
-
-When a user asks about a skin concern:
-1. Searches knowledge base semantically
-2. Finds top 3 matching products
-3. Includes price, promotion, and links
-4. Formats response naturally in Thai
-
-## Project Structure
+## 📂 Project Structure
 
 ```
-├── config/           # Configuration
-├── services/         # Business logic
-├── models/           # Data models
-├── api/              # API endpoints
-├── utils/            # Utilities
-├── data/             # Data storage
-├── scripts/          # Utility scripts
-└── tests/            # Tests
+├── api/              # Webhook Endpoints (The Operator)
+├── config/           # App Settings
+├── data/             # Knowledge Base & Cache
+├── deployment/       # Deployment Scripts
+├── scripts/          # Worker Scripts (The Sweeper)
+├── services/         # Core Logic (Gemini, FB, Google Sheets)
+└── main.py           # Entry Point
 ```
 
-## Troubleshooting
+---
 
-### Webhook Not Receiving Messages
-- Check Facebook webhook subscription status
-- Verify webhook URL is accessible
-- Check VERIFY_TOKEN matches
+## ⚠️ Troubleshooting
 
-### Rate Limit Errors
-- Check `/health/metrics` for current usage
-- Rate limits automatically recover
-- Monitor `logs/rate_limits.log`
+### Chat not responding?
+1. Check if the Tunnel is up: `docker ps` on server.
+2. Check if specific user is ignored: `utils/filters.py`.
 
-### Knowledge Base Not Working
-- Ensure `data/products.csv` exists
-- Check ChromaDB directory permissions
-- Verify products loaded (check logs)
+### Comments not replying?
+1. The Sweeper runs every **60 minutes**. Wait for the next cycle.
+2. Check logs: `docker logs dplus_cleanup_worker`.
 
-### Gemini/OpenRouter API Errors
-- Verify API key in `.env`
-- Check quota (Google) or credits (OpenRouter)
-- Run `python scripts/test_openrouter.py` to verify connection
-- Fallback responses will be used if API fails
+---
 
-## Monitoring
+## 📈 Dashboard ("NongD")
 
-Check logs:
-```bash
-# All logs
-tail -f logs/app.log
+A real-time dashboard is available to monitor all 3 bots (Comment, Chat, Post).
 
-# Errors only
-tail -f logs/errors.log
+### Quick Start
+Double-click `start_dashboard.bat` to launch the API, Monitor, and open the Dashboard automatically.
 
-# Rate limits
-tail -f logs/rate_limits.log
-```
-
-## Contributing
-
-This is a business-critical bot. Please:
-1. Test thoroughly before deploying
-2. Never modify rate limits upward
-3. Always use official Facebook APIs
-4. Monitor logs regularly
-
-## License
-
-Proprietary - D Plus Skin Business
-
-## Support
-
-For issues, check:
-1. Logs in `logs/` directory
-2. `/health/metrics` endpoint
-3. Meta Developer Documentation
+### Manual Start
+1. **API**: `uvicorn main:app --reload`
+2. **Monitor**: `python scripts/monitor_24_7.py`
+3. **View**: http://localhost:8000/dashboard
 
 ---
 

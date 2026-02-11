@@ -24,7 +24,8 @@ from services.rate_limiter import RateLimiter, get_rate_limiter
 from services.knowledge_base import KnowledgeBase, get_knowledge_base
 from services.facebook_service import FacebookService, get_facebook_service
 from services.gemini_service import GeminiService, get_gemini_service
-from api import webhooks, health
+from api import webhooks, health, dashboard
+from fastapi.staticfiles import StaticFiles
 
 # Global service instances
 rate_limiter: Optional[RateLimiter] = None
@@ -149,8 +150,13 @@ app.add_middleware(
 )
 
 # Include routers
+# Include routers
 app.include_router(webhooks.router, prefix="/webhook", tags=["Webhooks"])
 app.include_router(health.router, prefix="/health", tags=["Health"])
+app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
+
+# Mount Dashboard Static Files
+app.mount("/dashboard", StaticFiles(directory="dashboard", html=True), name="dashboard")
 
 
 # Root endpoint
