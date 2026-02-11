@@ -61,7 +61,7 @@ scp -i "$KEY_PATH" -o StrictHostKeyChecking=no $LOCAL_BUNDLE "${REMOTE_USER}@${R
 
 # 5. Deploy
 Write-Host "🚢 Deploying..." -ForegroundColor Cyan
-$DEPLOY_CMD = "
+$DEPLOY_CMD = @"
     cd $REMOTE_DIR;
     tar -xzf $LOCAL_BUNDLE;
     
@@ -72,7 +72,7 @@ $DEPLOY_CMD = "
     echo 'Cleaning up...';
     rm $LOCAL_BUNDLE;
     sudo docker image prune -f;
-"
+"@
 Run-SSH -Command $DEPLOY_CMD
 
 # 6. Cleanup Local

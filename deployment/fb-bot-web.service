@@ -1,0 +1,16 @@
+[Unit]
+Description=Facebook Bot Web Dashboard
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/tk578/fb-bot
+ExecStart=/home/tk578/fb-bot/.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+EnvironmentFile=/home/tk578/fb-bot/.env
+StandardOutput=append:/home/tk578/fb-bot/logs/app.log
+StandardError=append:/home/tk578/fb-bot/logs/app.log
+
+[Install]
+WantedBy=default.target

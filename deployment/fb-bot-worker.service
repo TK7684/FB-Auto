@@ -1,0 +1,16 @@
+[Unit]
+Description=Facebook Bot Fast Responder
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/tk578/fb-bot
+ExecStart=/home/tk578/fb-bot/.venv/bin/python scripts/fast_reply.py
+Restart=always
+RestartSec=10
+EnvironmentFile=/home/tk578/fb-bot/.env
+StandardOutput=append:/home/tk578/fb-bot/logs/fast_reply.log
+StandardError=append:/home/tk578/fb-bot/logs/fast_reply.log
+
+[Install]
+WantedBy=default.target

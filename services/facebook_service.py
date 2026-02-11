@@ -463,6 +463,89 @@ class FacebookService:
 
         return None
 
+    async def get_conversations(
+        self,
+        limit: int = 25,
+        after: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Get list of conversations from the page inbox.
+
+        Args:
+            limit: Number of conversations to retrieve
+            after: Pagination cursor
+
+        Returns:
+            Dictionary with conversation data
+        """
+        url = f"{self.base_url}/{self.page_id}/conversations"
+        params = {
+            "access_token": self.page_access_token,
+            "platform": "messenger",
+            "limit": limit,
+            "fields": "id,updated_time,messages.limit(1){message,from},link"
+        }
+
+        if after:
+            params["after"] = after
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+
+            self._check_rate_limit_headers(response)
+
+            data = response.json()
+            logger.debug(f"Retrieved {len(data.get('data', []))} conversations")
+            return data
+
+        except Exception as e:
+            logger.error(f"Error fetching conversations: {e}")
+            return {}
+
+    async def get_thread_messages(
+        self,
+        thread_id: str,
+        limit: int = 50,
+        after: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Get messages from a specific conversation thread.
+
+        Args:
+            thread_id: Conversation thread ID
+            limit: Number of messages to retrieve
+            after: Pagination cursor
+
+        Returns:
+            Dictionary with message data
+        """
+        url = f"{self.base_url}/{thread_id}/messages"
+        params = {
+            "access_token": self.page_access_token,
+            "limit": limit,
+            "fields": "id,message,from,created_time,attachments"
+        }
+
+        if after:
+            params["after"] = after
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+
+            self._check_rate_limit_headers(response)
+
+            data = response.json()
+            logger.debug(f"Retrieved {len(data.get('data', []))} messages from thread {thread_id}")
+            return data
+
+        except Exception as e:
+            logger.error(f"Error fetching messages for thread {thread_id}: {e}")
+            return {}
+
     def get_rate_limit_status(self) -> Dict[str, Any]:
         """
         Get current rate limit status.

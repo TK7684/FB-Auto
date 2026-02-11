@@ -84,10 +84,11 @@ async def get_activity(limit: int = 20):
 
 
 @router.get("/logs", summary="Get recent logs")
-async def get_logs(lines: int = 50):
+async def get_logs(lines: int = 200):
     """Get the last N lines from the monitor log."""
     # Try multiple log sources
     log_sources = [
+        Path("logs/scrape.log"),   # Inbox Scraper logs
         Path("logs/monitor.log"),
         Path("logs/fast_reply.log"),
         Path("logs/app.log"),
@@ -98,8 +99,10 @@ async def get_logs(lines: int = 50):
         if log_path.exists():
             try:
                 with open(log_path, "r", encoding="utf-8") as f:
+                    # Read all lines then take last 1000 to ensure we have enough buffer
+                    # before sorting and slicing the final N lines
                     file_lines = f.readlines()
-                    all_log_lines.extend(file_lines[-lines:])
+                    all_log_lines.extend(file_lines[-1000:])
             except Exception as e:
                 logger.error(f"Error reading {log_path}: {e}")
 
