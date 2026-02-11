@@ -309,6 +309,28 @@ async def handle_comment(comment_id: str, comment_text: str, post_id: str = None
             logger.info(f"Skipping comment (no purchase intent): {comment_text[:50]}...")
             return
 
+        # CHECK: Duplicate Reply (new)
+        if main_module.facebook_service:
+            existing_replies = main_module.facebook_service.get_comment_replies(comment_id)
+            for reply in existing_replies:
+                if reply.get("from", {}).get("id") == main_module.facebook_service.page_id:
+                    logger.info(f"Skipping comment {comment_id}: Already replied by page")
+                    try:
+                        from services.sheets_logger import log_to_sheet
+                        log_to_sheet(
+                            bot_name="Comment Bot",
+                            action="Skip: Duplicate",
+                            user_name="User",
+                            user_message=comment_text,
+                            bot_reply="[Skipped - Already Replied]",
+                            comment_id=comment_id,
+                            post_id=post_id or "",
+                            status="skipped"
+                        )
+                    except Exception:
+                        pass
+                    return
+
         # Fetch post caption for context
         post_caption = ""
         if post_id and main_module.facebook_service:

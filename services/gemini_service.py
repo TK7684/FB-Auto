@@ -6,46 +6,18 @@ Thai language responses for customer inquiries about D Plus Skin products.
 """
 
 import google.generativeai as genai
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any
 from loguru import logger
 import re
-import json
 from datetime import datetime
-from pathlib import Path
-import httpx
 
 from config.settings import settings
 from config.constants import (
     SYSTEM_PROMPT,
-    COMMENT_REPLY_PROMPT,
     MELASMA_SPECIAL_PROMPT,
     FALLBACK_RESPONSE,
-    MELASMA_KEYWORDS,
-    ACNE_KEYWORDS,
-    DRY_SKIN_KEYWORDS,
-    WRINKLE_KEYWORDS,
-    SUPPLEMENT_KEYWORDS,
-    SUPPLEMENT_KEYWORDS,
-    PURCHASE_INTENT_KEYWORDS,
-    SOCIAL_KEYWORDS,
-    SOCIAL_SYSTEM_PROMPT
+    MELASMA_KEYWORDS
 )
-from services.memory_service import get_memory_service
-
-
-# Load CTA configuration
-def _load_cta_config() -> Dict[str, Any]:
-    """Load product CTA configuration from JSON file."""
-    cta_path = Path("data/products_cta.json")
-    if cta_path.exists():
-        try:
-            with open(cta_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Error loading CTA config: {e}")
-    return {"categories": {}, "purchase_intent_keywords": [], "default_line_id": "@dplusskin"}
-
-CTA_CONFIG = _load_cta_config()
 
 
 class GeminiService:
@@ -68,35 +40,14 @@ class GeminiService:
         """
         self.api_key = api_key or settings.gemini_api_key
         self.model_name = settings.gemini_model
-        
-        # OpenRouter configuration
-        self.openrouter_key = settings.openrouter_api_key
-        self.openrouter_url = settings.openrouter_base_url
-        self.use_openrouter = bool(self.openrouter_key)
-        
-        self.memory_service = get_memory_service()
 
-        # Always configure genai if key is available (for embeddings)
-        if self.api_key:
-            try:
-                genai.configure(api_key=self.api_key)
-            except Exception as e:
-                logger.error(f"Failed to configure Gemini API: {e}")
-
-        if self.use_openrouter:
-            logger.info(f"Gemini service initialized with OpenRouter model: {self.model_name}")
-            self.model = None  # Not needed for OpenRouter
-        else:
-            try:
-                if self.api_key:
-                    self.model = genai.GenerativeModel(self.model_name)
-                    logger.info(f"Gemini service initialized with direct API model: {self.model_name}")
-                else:
-                    logger.warning("No Gemini API key provided for direct mode")
-                    self.model = None
-            except Exception as e:
-                logger.error(f"Failed to initialize Gemini model: {e}")
-                self.model = None
+        try:
+            genai.configure(api_key=self.api_key)
+            self.model = genai.GenerativeModel(self.model_name)
+            logger.info(f"Gemini service initialized with model: {self.model_name}")
+        except Exception as e:
+            logger.error(f"Failed to initialize Gemini: {e}")
+            self.model = None
 
     def _is_melasma_query(self, text: str) -> bool:
         """
@@ -108,96 +59,8 @@ class GeminiService:
         Returns:
             True if query contains melasma keywords
         """
-        return any(keyword in text for keyword in MELASMA_KEYWORDS)
-
-    def _is_purchase_intent(self, text: str) -> bool:
-        """
-        Check if the query shows purchase intent.
-
-        Args:
-            text: Query text
-
-        Returns:
-            True if query shows intent to buy
-        """
-        return any(keyword in text for keyword in PURCHASE_INTENT_KEYWORDS)
-
-    def _is_social_comment(self, text: str) -> bool:
-        """
-        Check if the query is social/chit-chat.
-        """
-        return any(keyword in text for keyword in SOCIAL_KEYWORDS)
-
-    def _detect_skin_category(self, text: str) -> str:
-        """
-        Detect which skin problem category the query is about.
-
-        Args:
-            text: Query text (could be comment or post caption)
-
-        Returns:
-            Category name (สิว, ฝ้า, ผิวแห้ง, ริ้วรอย, อาหารเสริม, or ทั่วไป)
-        """
         text_lower = text.lower()
-        if any(kw in text for kw in ACNE_KEYWORDS):
-            return "สิว"
-        elif any(kw in text for kw in MELASMA_KEYWORDS):
-            return "ฝ้า"
-        elif any(kw in text for kw in SUPPLEMENT_KEYWORDS) or any(kw in text_lower for kw in SUPPLEMENT_KEYWORDS):
-            return "อาหารเสริม"
-        elif any(kw in text for kw in DRY_SKIN_KEYWORDS):
-            return "ผิวแห้ง"
-        elif any(kw in text for kw in WRINKLE_KEYWORDS):
-            return "ริ้วรอย"
-        return "ทั่วไป"
-
-    def _get_cta_for_category(self, category: str, post_caption: str = "", comment_text: str = "") -> str:
-        """
-        Get the CTA text and link for a given category with tier-based matching.
-
-        Priority:
-        1. Check post caption for exact product name
-        2. Check comment/caption for tier keywords
-        3. Fall back to default CTA for category
-
-        Args:
-            category: Skin problem category
-            post_caption: Original post caption (primary source)
-            comment_text: User's comment text
-
-        Returns:
-            CTA text with link
-        """
-        cat_config = CTA_CONFIG.get("categories", {}).get(category, {})
-        if not cat_config:
-            cat_config = CTA_CONFIG.get("categories", {}).get("ทั่วไป", {})
-
-        link = cat_config.get("link", "https://line.me/ti/p/@dplusskin")
-        emoji = cat_config.get("emoji", "💕")
-
-        # Check for tier-based matching
-        tiers = cat_config.get("tiers", {})
-        combined_text = f"{post_caption} {comment_text}".lower()
-
-        if tiers:
-            # Check high tier keywords first (post caption priority)
-            high_tier = tiers.get("high", {})
-            high_keywords = high_tier.get("keywords", [])
-            if any(kw.lower() in combined_text for kw in high_keywords):
-                cta = high_tier.get("cta", cat_config.get("default_cta", "สนใจสินค้า ทักมาเลยค่ะ 👉"))
-                return f"{cta} {link} {emoji}"
-
-            # Check low tier keywords
-            low_tier = tiers.get("low", {})
-            low_keywords = low_tier.get("keywords", [])
-            if any(kw.lower() in combined_text for kw in low_keywords):
-                cta = low_tier.get("cta", cat_config.get("default_cta", "สนใจสินค้า ทักมาเลยค่ะ 👉"))
-                return f"{cta} {link} {emoji}"
-
-        # Fall back to default CTA
-        cta = cat_config.get("default_cta", cat_config.get("cta", "สนใจสินค้า ทักมาเลยค่ะ 👉"))
-        return f"{cta} {link} {emoji}"
-
+        return any(keyword in text_lower for keyword in MELASMA_KEYWORDS)
 
     def _build_prompt(
         self,
@@ -210,75 +73,34 @@ class GeminiService:
 
         Args:
             user_question: User's question
-            context: Product/relevant information context (may include post caption)
+            context: Product/relevant information context
             conversation_history: Previous messages for context
 
         Returns:
             Complete prompt string
         """
-        # Extract post caption from context if available
-        post_caption = ""
-        if "บริบทโพสต์:" in context:
-            lines = context.split("\n")
-            for line in lines:
-                if line.startswith("บริบทโพสต์:"):
-                    post_caption = line.replace("บริบทโพสต์:", "").strip()
-                    break
+        # Start with system prompt
+        prompt = SYSTEM_PROMPT
 
-        # Detect category from post caption + user question
-        combined_text = f"{post_caption} {user_question}"
-        category = self._detect_skin_category(combined_text)
-        cta_text = self._get_cta_for_category(category, post_caption, user_question)
+        # Add special handling for melasma if needed
+        if self._is_melasma_query(user_question):
+            prompt += f"\n\n{MELASMA_SPECIAL_PROMPT}"
 
-        # Check if this is a purchase intent
-        is_purchase = self._is_purchase_intent(user_question)
+        # Add context
+        prompt += f"\n\n## Context (ข้อมูลสินค้าและบริบท)\n{context}"
 
-        # Check if social/chit-chat
-        if self._is_social_comment(user_question):
-            # Use Social Prompt
-            # Try to get a specific example from memory if available
-            example = self.memory_service.get_random_example("social")
-            prompt = SOCIAL_SYSTEM_PROMPT
-            if example:
-                prompt += f"\n\n## ตัวอย่างจริงจากแอดมิน\nลูกค้า: {example['question']}\nแอดมิน: {example['answer']}"
-            
-            prompt += f"\n\n## ข้อความลูกค้า\n{user_question}\n\n## ตอบกลับ (สั้นๆ น่ารัก):"
-            return prompt
+        # Add conversation history if available
+        if conversation_history and len(conversation_history) > 0:
+            prompt += "\n\n## Conversation History (ประวัติการสนทนา)\n"
+            for msg in conversation_history[-5:]:  # Last 5 messages
+                role = "ลูกค้า" if msg.get("role") == "user" else "ผู้ดูแล"
+                prompt += f"{role}: {msg.get('content', '')}\n"
 
-        # Use COMMENT_REPLY_PROMPT for short, CTA-focused responses
-        if post_caption or is_purchase:
-            prompt = COMMENT_REPLY_PROMPT.format(
-                post_caption=post_caption or "(ไม่มีข้อมูลโพสต์ เน้นตอบตามบริบทสินค้า)",
-                cta_text=cta_text,
-                comment_text=user_question
-            )
-        else:
-            # Use regular system prompt for general queries
-            prompt = SYSTEM_PROMPT
+        # Add current question
+        prompt += f"\n\n## คำถามลูกค้า\n{user_question}"
 
-            # Add special handling for melasma if needed
-            if self._is_melasma_query(user_question):
-                prompt += f"\n\n{MELASMA_SPECIAL_PROMPT}"
-
-            # Add context
-            prompt += f"\n\n## Context (ข้อมูลสินค้าและบริบท)\n{context}"
-            
-            # --- MEMORY INJECTION ---
-            similar_memories = self.memory_service.find_similar(user_question, category="product")
-            if similar_memories:
-                prompt += "\n\n## ตัวอย่างการตอบในอดีต (เลียนแบบโทนนี้)\n"
-                for mem in similar_memories:
-                    prompt += f"- Q: {mem['question']}\n  A: {mem['answer']}\n"
-            # ------------------------
-
-            # Add current question
-            prompt += f"\n\n## คำถามลูกค้า\n{user_question}"
-
-            # Add CTA instruction
-            prompt += f"\n\nCTA ที่ใช้: {cta_text}"
-
-            # Add response instruction
-            prompt += "\n\n## คำตอบ (ตอบสั้นๆ 1-2 บรรทัด พร้อม CTA)\n"
+        # Add response instruction
+        prompt += "\n\n## คำตอบ (กรุณาตอบเป็นภาษาไทยที่สุภาพและเป็นกันเอง)\n"
 
         return prompt
 
@@ -335,6 +157,27 @@ class GeminiService:
 
         return True
 
+    def _clean_response(self, response: str) -> str:
+        """
+        Remove SKU codes and internal references from response.
+        Example: removes (E3Y3B), (A1), etc.
+
+        Args:
+            response: Raw response text
+
+        Returns:
+            Cleaned response text
+        """
+        if not response:
+            return response
+
+        # Remove parenthesized alphanumeric codes (e.g., (E3Y3B), (A123))
+        # Keep parentheses if they contain Thai characters (likely explanations)
+        cleaned = re.sub(r'\([A-Z0-9\s-]{2,10}\)', '', response)
+
+        # Remove specific pattern like "ว1" if needed, but regex above handles the parenthesized part
+        return cleaned
+
     async def generate_response(
         self,
         user_question: str,
@@ -354,42 +197,55 @@ class GeminiService:
         Returns:
             Generated response text
         """
-        # Prepare prompt
+        if not self.model:
+            logger.error("Gemini model not initialized, using fallback")
+            return self._get_fallback_response(user_question, context)
+
+        # Build prompt
         prompt = self._build_prompt(user_question, context, conversation_history)
 
-        # TRY 1: OpenRouter (Primary)
-        if self.openrouter_key:
+        # Log for debugging
+        is_melasma = self._is_melasma_query(user_question)
+        logger.info(
+            f"Generating response for: {user_question[:50]}... "
+            f"(melasma: {is_melasma})"
+        )
+
+        # Try to generate with retries
+        for attempt in range(max_retries + 1):
             try:
-                logger.info(f"Attempting response via OpenRouter: {user_question[:30]}...")
-                response = await self._generate_via_openrouter(prompt, user_question, context, 1)
-                if response and response != FALLBACK_RESPONSE:
-                    return response
+                response = self.model.generate_content(prompt)
+
+                if not response or not response.text:
+                    logger.warning(f"Empty response from Gemini (attempt {attempt + 1})")
+                    if attempt < max_retries:
+                        continue
+                    return self._get_fallback_response(user_question, context)
+
+                # Validate response
+                if self._validate_response(response.text):
+                    cleaned_text = self._clean_response(response.text)
+                    logger.info(f"✓ Response generated: {len(cleaned_text)} characters")
+                    return cleaned_text
+                else:
+                    logger.warning(f"Response validation failed (attempt {attempt + 1})")
+                    if attempt < max_retries:
+                        continue
+
             except Exception as e:
-                logger.warning(f"OpenRouter generation failed, falling back to direct Google: {e}")
+                logger.error(
+                    f"Gemini API error (attempt {attempt + 1}/{max_retries + 1}): {e}"
+                )
 
-        # TRY 2: Direct Google Gemini (Fallback)
-        if self.api_key and self.model:
-            try:
-                logger.info(f"Attempting response via Direct Google Gemini: {user_question[:30]}...")
-                # Try to generate with direct Google API
-                for attempt in range(max_retries + 1):
-                    try:
-                        response = self.model.generate_content(prompt)
+                if "quota" in str(e).lower() or "limit" in str(e).lower():
+                    logger.error("Gemini quota exceeded, using fallback")
+                    return self._get_fallback_response(user_question, context)
 
-                        if response and response.text:
-                            if self._validate_response(response.text):
-                                logger.info(f"✓ Direct Google Response: {len(response.text)} characters")
-                                return response.text
-                            else:
-                                logger.warning(f"Direct Google validation failed (attempt {attempt + 1})")
-                    except Exception as e:
-                        logger.error(f"Direct Google API error (attempt {attempt + 1}): {e}")
-                        if "quota" in str(e).lower() or "limit" in str(e).lower():
-                            break # Don't retry quota errors
-            except Exception as e:
-                logger.error(f"Direct Google generation failed completely: {e}")
+                if attempt < max_retries:
+                    continue
 
-        # Final Fallback
+        # All retries failed, use fallback
+        logger.warning("All retries failed, using fallback response")
         return self._get_fallback_response(user_question, context)
 
     def _get_fallback_response(self, question: str, context: str) -> str:
@@ -420,136 +276,6 @@ class GeminiService:
             )
 
         return response
-
-    async def _generate_via_openrouter(
-        self, 
-        prompt: str, 
-        user_question: str, 
-        context: str, 
-        max_retries: int
-    ) -> str:
-        """
-        Generate response using OpenRouter API.
-        """
-        # Map model name for OpenRouter if needed
-        model = self.model_name
-        
-        # Handle common Google model mappings for OpenRouter
-        if "gemini-2.0-flash" in model and "google" not in model:
-            model = "google/gemini-2.0-flash-001"
-        elif "gemini-1.0-pro" in model or "gemini-pro" == model:
-            model = "google/gemini-pro"
-        elif "gemini-1.5-flash" in model:
-            model = "google/gemini-flash-1.5"
-        elif "gemini-1.5-pro" in model:
-            model = "google/gemini-pro-1.5"
-            
-        headers = {
-            "Authorization": f"Bearer {self.openrouter_key}",
-            "HTTP-Referer": "https://dplusskin.com",
-            "X-Title": settings.business_name,
-        }
-        
-        request_data = {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}]
-        }
-        
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            for attempt in range(max_retries + 1):
-                try:
-                    response = await client.post(
-                        f"{self.openrouter_url}/chat/completions",
-                        headers=headers,
-                        json=request_data
-                    )
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        generated_text = data['choices'][0]['message']['content']
-                        
-                        if self._validate_response(generated_text):
-                            logger.info(f"✓ OpenRouter Response: {len(generated_text)} chars")
-                            return generated_text
-                        else:
-                            logger.warning(f"OpenRouter validation failed (attempt {attempt + 1})")
-                    else:
-                        logger.error(f"OpenRouter API error: {response.status_code} - {response.text}")
-                        
-                except Exception as e:
-                    logger.error(f"OpenRouter Connection Error (attempt {attempt + 1}): {e}")
-                    
-                if attempt < max_retries:
-                    continue
-                    
-        return self._get_fallback_response(user_question, context)
-
-    async def generate_reply(
-        self,
-        comment_text: str,
-        post_caption: str = "",
-        reply_mode: str = "public_link",
-        context: str = ""
-    ) -> str:
-        """
-        Generate a reply using Gemini.
-
-        Args:
-            comment_text: The user's comment
-            post_caption: Context from the post
-            reply_mode: "public_link" (80%) or "private_reply" (20%)
-            context: Additional product context (RAG)
-
-        Returns:
-            Generated reply text
-        """
-        try:
-            # 1. Classify Category
-            category = self._detect_skin_category(comment_text)
-            
-            # 2. Get Product Info / Link
-            cta_full_text = self._get_cta_for_category(category, post_caption, comment_text)
-            
-            # 3. Construct Prompt based on Mode
-            if reply_mode == "private_reply":
-                # STRATEGY: 20% - Soft sell, no link, say "Check Inbox"
-                prompt = COMMENT_REPLY_PROMPT.format(
-                    post_caption=post_caption,
-                    cta_text="แจ้งรายละเอียดทางแชทแล้วนะคะ/ครับ",
-                    comment_text=comment_text
-                )
-                prompt += f"\n\n**สำคัญมาก:**\n- ห้ามใส่ลิงก์เด็ดขาด\n- ให้บอกลูกค้าว่าส่งรายละเอียดไปทางแชท (Inbox) แล้ว\n- ใช้คำพูดน่าสนใจให้อยากเปิดอ่าน\n- ใช้ Emoji ที่เหมาะสม"
-            else:
-                # STRATEGY: 80% - Direct Link
-                prompt = COMMENT_REPLY_PROMPT.format(
-                    post_caption=post_caption,
-                    cta_text=cta_full_text,
-                    comment_text=comment_text
-                )
-                
-            # --- RAG CONTEXT INJECTION ---
-            if context:
-                prompt += f"\n\n## ข้อมูลสินค้าเพิ่มเติม (ใช้ประกอบการตอบหากจำเป็น)\n{context}"
-            # -----------------------------
-
-            # 4. Call Gemini
-            if self.use_openrouter:
-                # OpenRouter
-                reply = await self._generate_via_openrouter(prompt, comment_text, post_caption, 2)
-            elif self.model:
-                # Google API
-                response = self.model.generate_content(prompt)
-                reply = response.text
-            else:
-                logger.error("No model available for generation")
-                return FALLBACK_RESPONSE
-            
-            # Clean reply (remove markdown etc if needed, though usually fine)
-            return reply.strip()
-
-        except Exception as e:
-            logger.error(f"Gemini generation error: {e}")
-            return FALLBACK_RESPONSE
 
     async def generate_response_streaming(
         self,
@@ -593,131 +319,14 @@ class GeminiService:
             True if connection successful
         """
         try:
-            if self.use_openrouter:
-                 # Simple check for OpenRouter key presence as a sync proxy for health
-                 # Ideally, we would make a sync HTTP request here, but for startup speed:
-                 if self.openrouter_key:
-                     logger.info(f"✓ OpenRouter configured with key (skipping sync network test)")
-                     return True
-                 return False
-
-            if self.model:
-                response = self.model.generate_content("สวัสดี")
-                if response and response.text:
-                    logger.info(f"✓ Gemini connection test successful: {response.text[:50]}")
-                    return True
+            response = self.model.generate_content("สวัสดี")
+            if response and response.text:
+                logger.info(f"✓ Gemini connection test successful: {response.text[:50]}")
+                return True
         except Exception as e:
             logger.error(f"Gemini connection test failed: {e}")
 
         return False
-
-    def _get_embeddings_openrouter_sync(self, text: Union[str, List[str]]) -> List[List[float]]:
-        """Internal method to get embeddings via OpenRouter (sync)."""
-        print(f"DEBUG: Entering _get_embeddings_openrouter_sync with key: {bool(self.openrouter_key)}")
-        if not self.openrouter_key:
-            return []
-            
-        model = "google/gemini-embedding-001"
-# Standard OpenRouter mapping
-        headers = {
-            "Authorization": f"Bearer {self.openrouter_key}",
-            "Content-Type": "application/json"
-        }
-        
-        texts = [text] if isinstance(text, str) else text
-        payload = {"model": model, "input": texts}
-        
-        try:
-            with httpx.Client(timeout=15.0) as client:
-                response = client.post(
-                    f"{self.openrouter_url}/embeddings",
-                    headers=headers,
-                    json=payload
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    # OpenRouter OpenAI-compatible format: data['data'] -> list of {'embedding': [...]}
-                    if 'data' in data and data['data']:
-                        embeddings = [item['embedding'] for item in data['data']]
-                        return embeddings if isinstance(text, list) else embeddings[0]
-                    return []
-                else:
-                    logger.error(f"OpenRouter Embedding error: {response.status_code} - {response.text}")
-                    return []
-        except Exception as e:
-            logger.error(f"OpenRouter Embedding exception: {e}")
-            return []
-
-    def get_embeddings(self, text: Union[str, List[str]], task_type: Optional[str] = None) -> Union[List[float], List[List[float]]]:
-        """
-        Get embeddings for text using Priority: OpenRouter -> Direct Gemini.
-        """
-        # 1. TRY OPENROUTER
-        if self.openrouter_key:
-            try:
-                result = self._get_embeddings_openrouter_sync(text)
-                if result:
-                    logger.info("✓ Embeddings obtained via OpenRouter")
-                    return result
-            except Exception as e:
-                logger.warning(f"OpenRouter embeddings failed, falling back to Google: {e}")
-
-        # 2. TRY DIRECT GOOGLE
-        if self.api_key:
-            try:
-                model = "models/embedding-001"
-                
-                if not task_type:
-                    task_type = "retrieval_document" if isinstance(text, list) else "retrieval_query"
-
-                result = genai.embed_content(
-                    model=model,
-                    content=text,
-                    task_type=task_type
-                )
-                
-                if 'embedding' in result:
-                    logger.info("✓ Embeddings obtained via Direct Google")
-                    return result['embedding']
-            except Exception as e:
-                logger.error(f"Direct Google embedding failed: {e}")
-
-        return []
-        
-    async def test_connection_async(self) -> bool:
-        """
-        Test the API connection asynchronously.
-        """
-        try:
-            if self.use_openrouter:
-                # Test OpenRouter connection
-                headers = {
-                    "Authorization": f"Bearer {self.openrouter_key}",
-                    "HTTP-Referer": "https://dplusskin.com", 
-                    "X-Title": settings.business_name,
-                }
-                
-                # Check models endpoint as a lightweight test
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    response = await client.get(
-                        f"https://openrouter.ai/api/v1/models",
-                        headers=headers
-                    )
-                    if response.status_code == 200:
-                        logger.info("✓ OpenRouter connection test successful")
-                        return True
-                    else:
-                        logger.error(f"OpenRouter connection failed: {response.text}")
-                        return False
-            else:
-                # Existing synchronous test for direct Gemini API
-                # Note: This runs sync code in async context, ideally should be wrapped
-                return self.test_connection()
-                
-        except Exception as e:
-            logger.error(f"Connection test failed: {e}")
-            return False
 
 
 # Singleton instance

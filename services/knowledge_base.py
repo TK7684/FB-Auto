@@ -5,40 +5,27 @@ This module provides semantic search capabilities for products and Q&A pairs.
 Uses sentence transformers for Thai language embeddings and ChromaDB for vector storage.
 """
 
-# import pandas as pd # Lazy loaded in method
-# Move heavy imports inside class to avoid blocking startup
-# import chromadb
-# from chromadb.config import Settings as ChromaSettings
-# from sentence_transformers import SentenceTransformer
+import pandas as pd
+import chromadb
+from chromadb.config import Settings as ChromaSettings
+from sentence_transformers import SentenceTransformer
 from typing import List, Dict, Optional, Any
 from loguru import logger
 from pathlib import Path
 import json
-import hashlib
 from datetime import datetime
-import chromadb
-from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
-from functools import lru_cache
-
-from services.gemini_service import get_gemini_service
-
-
-class GeminiEmbeddingFunction(EmbeddingFunction):
-    def __call__(self, input: Documents) -> Embeddings:
-        service = get_gemini_service()
-        # Ensure input is a list of strings
-        if isinstance(input, str):
-            input = [input]
-        return service.get_embeddings(input)
 
 
 class KnowledgeBase:
     """
     Knowledge base for product search and Q&A retrieval.
 
-    Uses ChromaDB with Gemini embeddings for semantic search
+    Uses ChromaDB with sentence transformers for semantic search
     in Thai and English languages.
     """
+
+    # Default embedding model (multilingual, supports Thai)
+    DEFAULT_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
     def __init__(
         self,
@@ -50,6 +37,7 @@ class KnowledgeBase:
 
         Args:
             persist_dir: Directory for ChromaDB persistence
+            embedding_model: Model name for sentence transformers
         """
         self.persist_dir = Path(persist_dir)
         self.persist_dir.mkdir(parents=True, exist_ok=True)
@@ -57,20 +45,19 @@ class KnowledgeBase:
         # Initialize ChromaDB client with persistence
         self.client = chromadb.PersistentClient(path=str(self.persist_dir))
 
-        # Initialize Gemini embedding function
-        self.embedding_fn = GeminiEmbeddingFunction()
-        logger.info("Initialized Gemini Embedding Function")
+        # Load embedding model
+        model_name = embedding_model or self.DEFAULT_EMBEDDING_MODEL
+        logger.info(f"Loading embedding model: {model_name}")
+        self.embedding_model = SentenceTransformer(model_name)
 
         # Get or create collections
         self.products_collection = self.client.get_or_create_collection(
             name="products",
-            embedding_function=self.embedding_fn,
             metadata={"hnsw:space": "cosine"}
         )
 
         self.qa_collection = self.client.get_or_create_collection(
             name="qa_pairs",
-            embedding_function=self.embedding_fn,
             metadata={"hnsw:space": "cosine"}
         )
 
@@ -101,77 +88,21 @@ class KnowledgeBase:
             return 0
 
         try:
-            # Lazy import pandas
-            import pandas as pd
-            
-            # Check hash to avoid redundant reload
-            hash_file = csv_file.with_suffix('.hash')
-            current_hash = hashlib.md5(csv_file.read_bytes()).hexdigest()
-            
-            if not clear_existing and hash_file.exists():
-                stored_hash = hash_file.read_text().strip()
-                if stored_hash == current_hash and self.products_collection.count() > 0:
-                    logger.info(f"Products CSV hash matches ({current_hash[:8]}). Skipping reload.")
-                    return self.products_collection.count()
-            
-            # Read CSV - the file has English headers first, then Thai headers
-            # Skip the first 2 rows (English headers + empty row) to get to Thai headers
-            df = pd.read_csv(csv_file, encoding="utf-8", skiprows=2, on_bad_lines='skip')
+            df = pd.read_csv(csv_file, encoding="utf-8")
+            logger.info(f"Loaded {len(df)} products from {csv_path}")
 
-            # Remove completely empty rows
-            df = df.dropna(how='all')
-
-            logger.info(f"Loaded {len(df)} raw rows from {csv_path}")
-
-            # Column mapping: Thai columns -> English columns
-            column_mapping = {
-                "ชื่อสินค้า": "Product_Name",
-                "คำอธิบายสินค้า": "Description",
-                "ลิงก์สินค้า": "Link",
-                "Link": "Link",
-            }
-
-            # Rename Thai columns to English
-            df = df.rename(columns=column_mapping)
-
-            # For columns that don't have a direct mapping, try to auto-detect
-            if "Product_Name" not in df.columns:
-                # Try to find a column that looks like product name
-                for col in df.columns:
-                    col_lower = col.lower()
-                    if "name" in col_lower or "ชื่อ" in col or "สินค้า" in col:
-                        df = df.rename(columns={col: "Product_Name"})
-                        break
-
-            if "Description" not in df.columns:
-                for col in df.columns:
-                    col_lower = col.lower()
-                    if "desc" in col_lower or "อธิบาย" in col:
-                        df = df.rename(columns={col: "Description"})
-                        break
-
-            # Required columns after mapping
-            required_cols = ["Product_Name", "Link"]
+            # Expected columns
+            required_cols = ["Product_Name", "Symptom_Target", "Price", "Link"]
             missing_cols = [col for col in required_cols if col not in df.columns]
             if missing_cols:
                 logger.error(f"Missing required columns: {missing_cols}")
-                logger.error(f"Available columns: {list(df.columns)}")
                 return 0
-
-            # Set defaults for optional columns
-            if "Symptom_Target" not in df.columns:
-                df["Symptom_Target"] = ""
-            if "Price" not in df.columns:
-                df["Price"] = "ติดต่อสอบถาม"
-            if "Promotion" not in df.columns:
-                df["Promotion"] = ""
 
             # Clear existing if requested
             if clear_existing:
                 self.client.delete_collection("products")
                 self.products_collection = self.client.create_collection(
                     name="products",
-                    embedding_function=self.embedding_fn,
                     metadata={"hnsw:space": "cosine"}
                 )
                 logger.info("Cleared existing products")
@@ -219,9 +150,7 @@ class KnowledgeBase:
                 ids=ids
             )
 
-            # Save new hash
-            hash_file.write_text(current_hash)
-            logger.info(f"Successfully loaded {len(documents)} products and updated hash")
+            logger.info(f"Successfully loaded {len(documents)} products to knowledge base")
             return len(documents)
 
         except Exception as e:
@@ -322,7 +251,6 @@ class KnowledgeBase:
             logger.error(f"Error searching Q&A: {e}")
             return []
 
-    @lru_cache(maxsize=128)
     def generate_context(
         self,
         query: str,
@@ -464,12 +392,13 @@ _knowledge_base: Optional[KnowledgeBase] = None
 
 
 def get_knowledge_base(
-    persist_dir: str = "./data/knowledge_base"
+    persist_dir: str = "./data/knowledge_base",
+    embedding_model: Optional[str] = None
 ) -> KnowledgeBase:
     """Get the global knowledge base instance."""
     global _knowledge_base
     if _knowledge_base is None:
-        _knowledge_base = KnowledgeBase(persist_dir)
+        _knowledge_base = KnowledgeBase(persist_dir, embedding_model)
     return _knowledge_base
 
 

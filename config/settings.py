@@ -19,12 +19,8 @@ class Settings(BaseSettings):
     )
 
     # ===== API Keys =====
-    gemini_api_key: Optional[str] = None
-    gemini_model: str = "gemini-2.0-flash"
-    
-    # ===== OpenRouter Settings =====
-    openrouter_api_key: Optional[str] = None
-    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    gemini_api_key: str
+    gemini_model: str = "gemini-pro"
 
     # ===== Facebook Credentials =====
     facebook_app_id: str

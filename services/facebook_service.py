@@ -4,15 +4,11 @@ Facebook Graph API Service with Rate Limiting.
 This module handles all interactions with the Facebook Graph API,
 including sending messages, commenting, and webhook verification.
 Integrates with the rate limiter to avoid API bans.
-
-Optimized: Uses async httpx instead of sync requests.
 """
 
-import httpx
+import requests
 import time
 import json
-import hashlib
-import hmac
 from typing import Optional, Dict, Any
 from loguru import logger
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -59,7 +55,6 @@ class FacebookService:
         self.page_id = settings.facebook_page_id
         self.api_version = settings.facebook_api_version
         self.base_url = settings.facebook_graph_api_url
-        self.app_secret = settings.facebook_app_secret
         self.rate_limiter = rate_limiter
 
         logger.info(
@@ -67,28 +62,13 @@ class FacebookService:
             f"using API version {self.api_version}"
         )
 
-    def _get_appsecret_proof(self) -> str:
-        """Generate appsecret_proof for secure API calls."""
-        return hmac.new(
-            self.app_secret.encode('utf-8'),
-            self.page_access_token.encode('utf-8'),
-            hashlib.sha256
-        ).hexdigest()
-
-    def _get_auth_params(self) -> Dict[str, str]:
-        """Get authentication parameters including appsecret_proof."""
-        return {
-            "access_token": self.page_access_token,
-            "appsecret_proof": self._get_appsecret_proof()
-        }
-
     def _get_headers(self) -> Dict[str, str]:
         """Get headers for API requests."""
         return {
             "Content-Type": "application/json",
         }
 
-    def _check_rate_limit_headers(self, response: httpx.Response) -> None:
+    def _check_rate_limit_headers(self, response: requests.Response) -> None:
         """
         Monitor Facebook rate limit headers and log warnings.
 
@@ -100,12 +80,10 @@ class FacebookService:
             try:
                 usage = json.loads(app_usage)
                 call_count = usage.get("call_count", 0)
-                # Fixed: check higher threshold first
-                if call_count > 85:
-                    logger.error(f"X-App-Usage CRITICAL: {call_count}% used")
-                    self.rate_limiter.trigger_panic()
-                elif call_count > 70:
+                if call_count > 70:
                     logger.warning(f"X-App-Usage: {call_count}% used")
+                elif call_count > 85:
+                    logger.error(f"X-App-Usage CRITICAL: {call_count}% used")
                 else:
                     logger.debug(f"X-App-Usage: {app_usage}")
             except json.JSONDecodeError:
@@ -115,7 +93,7 @@ class FacebookService:
         if buc_usage:
             logger.debug(f"X-Business-Use-Case-Usage: {buc_usage}")
 
-    def _handle_error(self, response: httpx.Response) -> None:
+    def _handle_error(self, response: requests.Response) -> None:
         """
         Handle Facebook API errors and raise appropriate exceptions.
 
@@ -137,7 +115,6 @@ class FacebookService:
             # Check if this is a rate limit error
             if error_code in RETRYABLE_ERROR_CODES:
                 error_type = FACEBOOK_ERROR_CODES.get(error_code, "Unknown rate limit")
-                self.rate_limiter.trigger_panic()
                 raise RateLimitError(
                     f"{error_type}: {error_message}",
                     code=error_code
@@ -177,9 +154,13 @@ class FacebookService:
             RateLimitError: If rate limit is reached
             FacebookAPIError: For other API errors
         """
+        # Determine rate limit category
+        endpoint = "messenger_text" if message_type == "text" else "messenger_media"
+
         # Check rate limit before sending
-        if not self.rate_limiter.check_and_increment():
-            logger.warning("Rate limit reached for messages")
+        if not await self.rate_limiter.acquire(endpoint):
+            logger.warning(f"Rate limit reached for {endpoint}, message queued")
+            # Could implement queue here
             return False
 
         url = f"{self.base_url}/me/messages"
@@ -189,13 +170,13 @@ class FacebookService:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(
-                    url,
-                    params={"access_token": self.page_access_token},
-                    headers=self._get_headers(),
-                    json=data,
-                )
+            response = requests.post(
+                url,
+                params={"access_token": self.page_access_token},
+                headers=self._get_headers(),
+                json=data,
+                timeout=10
+            )
 
             # Check rate limit headers
             self._check_rate_limit_headers(response)
@@ -208,6 +189,7 @@ class FacebookService:
                 return False
 
         except RateLimitError:
+            # Re-raise for retry decorator
             raise
         except FacebookAPIError as e:
             logger.error(f"Facebook API error sending message: {e}")
@@ -225,8 +207,7 @@ class FacebookService:
     async def send_comment_reply(
         self,
         comment_id: str,
-        reply_text: str,
-        attachment_url: Optional[str] = None
+        reply_text: str
     ) -> bool:
         """
         Reply to a Facebook page comment.
@@ -234,36 +215,36 @@ class FacebookService:
         Args:
             comment_id: ID of the comment to reply to
             reply_text: Reply text
-            attachment_url: Optional URL of image to attach
 
         Returns:
             True if reply sent successfully
+
+        Raises:
+            RateLimitError: If rate limit is reached
+            FacebookAPIError: For other API errors
         """
-        # Check global rate limit
-        if not self.rate_limiter.check_and_increment():
+        # Check rate limit for private replies
+        if not await self.rate_limiter.acquire("private_replies"):
             logger.warning("Rate limit reached for comment replies")
             return False
 
         url = f"{self.base_url}/{comment_id}/comments"
         data = {"message": reply_text}
-        
-        if attachment_url:
-            data["attachment_url"] = attachment_url
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(
-                    url,
-                    params={"access_token": self.page_access_token},
-                    headers=self._get_headers(),
-                    json=data,
-                )
+            response = requests.post(
+                url,
+                params={"access_token": self.page_access_token},
+                headers=self._get_headers(),
+                json=data,
+                timeout=10
+            )
 
             # Check rate limit headers
             self._check_rate_limit_headers(response)
 
             if response.status_code == 200:
-                logger.info(f"✓ Reply sent to comment {comment_id} (img: {bool(attachment_url)})")
+                logger.info(f"✓ Reply sent to comment {comment_id}")
                 return True
             else:
                 self._handle_error(response)
@@ -274,66 +255,37 @@ class FacebookService:
         except FacebookAPIError as e:
             logger.error(f"Facebook API error sending reply: {e}")
             return False
+            return False
         except Exception as e:
             logger.error(f"Unexpected error sending reply: {e}")
             return False
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=32),
-        retry=retry_if_exception_type(RateLimitError),
-        reraise=True
-    )
-    async def send_private_reply(
-        self,
-        comment_id: str,
-        message_text: str
-    ) -> bool:
+    def get_comment_replies(self, comment_id: str) -> List[Dict]:
         """
-        Send a private reply (DM) to a comment.
-        allowed_tags: COMMENT_REPLY
+        Get replies for a specific comment to check for duplicates.
 
         Args:
-            comment_id: ID of the comment to reply to
-            message_text: Message text
+            comment_id: The ID of the comment to check
 
         Returns:
-            True if sent successfully
+            List of reply objects
         """
-        if not self.rate_limiter.check_and_increment():
-            logger.warning("Rate limit reached for private replies")
-            return False
-
-        url = f"{self.base_url}/{comment_id}/private_replies"
-        data = {"message": message_text}
+        url = f"{self.base_url}/{comment_id}/comments"
+        params = {
+            "access_token": self.page_access_token,
+            "fields": "id,message,from,created_time",
+            "limit": 25
+        }
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(
-                    url,
-                    params={"access_token": self.page_access_token},
-                    headers=self._get_headers(),
-                    json=data,
-                )
-
-            # Check rate limit headers
-            self._check_rate_limit_headers(response)
-
+            response = requests.get(url, params=params, timeout=10)
             if response.status_code == 200:
-                logger.info(f"✓ Private reply sent to comment {comment_id}")
-                return True
-            else:
-                self._handle_error(response)
-                return False
-
-        except RateLimitError:
-            raise
-        except FacebookAPIError as e:
-            logger.error(f"Facebook API error sending private reply: {e}")
-            return False
+                data = response.json()
+                return data.get("data", [])
         except Exception as e:
-            logger.error(f"Unexpected error sending private reply: {e}")
-            return False
+            logger.error(f"Error checking replies for comment {comment_id}: {e}")
+        
+        return []
 
     def verify_webhook(
         self,
@@ -363,36 +315,7 @@ class FacebookService:
         )
         return None
 
-    async def get_post_details(self, post_id: str) -> Dict[str, Any]:
-        """
-        Get post details including caption/message.
-
-        Args:
-            post_id: Facebook post ID
-
-        Returns:
-            Dictionary with post details (message, created_time, etc.)
-        """
-        url = f"{self.base_url}/{post_id}"
-        params = {
-            **self._get_auth_params(),
-            "fields": "message,created_time,full_picture,permalink_url"
-        }
-
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-
-            data = response.json()
-            logger.debug(f"Retrieved post details for {post_id}: {data.get('message', '')[:50]}...")
-            return data
-
-        except Exception as e:
-            logger.error(f"Error fetching post details: {e}")
-            return {}
-
-    async def get_page_comments(
+    def get_page_comments(
         self,
         post_id: Optional[str] = None,
         limit: int = 25,
@@ -408,7 +331,13 @@ class FacebookService:
 
         Returns:
             Dictionary with comment data
+
+        Note: This uses page_api rate limit
         """
+        # Check rate limit
+        if not self.rate_limiter.get_stats("page_api"):
+            logger.warning("Page API rate limit reached for comment fetch")
+
         if post_id:
             url = f"{self.base_url}/{post_id}/comments"
         else:
@@ -424,9 +353,8 @@ class FacebookService:
             params["after"] = after
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
 
             self._check_rate_limit_headers(response)
 
@@ -438,9 +366,11 @@ class FacebookService:
             logger.error(f"Error fetching comments: {e}")
             return {}
 
-    async def get_engaged_users_count(self) -> Optional[int]:
+    def get_engaged_users_count(self) -> Optional[int]:
         """
         Get the number of engaged users in the last 24 hours.
+
+        This is useful for understanding current rate limits.
 
         Returns:
             Number of engaged users or None if unavailable
@@ -453,126 +383,44 @@ class FacebookService:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, params=params)
+            response = requests.get(url, params=params, timeout=10)
             if response.status_code == 200:
                 data = response.json()
+                # The engaged users count is used in rate limit calculations
+                # This is a simplified version
                 return data.get("data", [{}])[0].get("values", [{}])[0].get("value")
         except Exception as e:
             logger.debug(f"Could not fetch engaged users: {e}")
 
         return None
 
-    async def get_conversations(
-        self,
-        limit: int = 25,
-        after: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Get list of conversations from the page inbox.
-
-        Args:
-            limit: Number of conversations to retrieve
-            after: Pagination cursor
-
-        Returns:
-            Dictionary with conversation data
-        """
-        url = f"{self.base_url}/{self.page_id}/conversations"
-        params = {
-            "access_token": self.page_access_token,
-            "platform": "messenger",
-            "limit": limit,
-            "fields": "id,updated_time,messages.limit(1){message,from},link"
-        }
-
-        if after:
-            params["after"] = after
-
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-
-            self._check_rate_limit_headers(response)
-
-            data = response.json()
-            logger.debug(f"Retrieved {len(data.get('data', []))} conversations")
-            return data
-
-        except Exception as e:
-            logger.error(f"Error fetching conversations: {e}")
-            return {}
-
-    async def get_thread_messages(
-        self,
-        thread_id: str,
-        limit: int = 50,
-        after: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Get messages from a specific conversation thread.
-
-        Args:
-            thread_id: Conversation thread ID
-            limit: Number of messages to retrieve
-            after: Pagination cursor
-
-        Returns:
-            Dictionary with message data
-        """
-        url = f"{self.base_url}/{thread_id}/messages"
-        params = {
-            "access_token": self.page_access_token,
-            "limit": limit,
-            "fields": "id,message,from,created_time,attachments"
-        }
-
-        if after:
-            params["after"] = after
-
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-
-            self._check_rate_limit_headers(response)
-
-            data = response.json()
-            logger.debug(f"Retrieved {len(data.get('data', []))} messages from thread {thread_id}")
-            return data
-
-        except Exception as e:
-            logger.error(f"Error fetching messages for thread {thread_id}: {e}")
-            return {}
-
     def get_rate_limit_status(self) -> Dict[str, Any]:
         """
-        Get current rate limit status.
+        Get current rate limit status for all endpoints.
 
         Returns:
             Dictionary with rate limit information
         """
-        state = self.rate_limiter._load_state()
-        return {
-            "comments_this_hour": state.get("comments_this_hour", 0),
-            "hour_start_ts": state.get("hour_start_ts", 0),
-            "panic_until_ts": state.get("panic_until_ts", 0),
-            "last_action_ts": state.get("last_action_ts", 0),
-        }
+        status = {}
+
+        for endpoint, stats in self.rate_limiter.get_all_stats().items():
+            status[endpoint] = {
+                "usage_percent": stats.usage_percent,
+                "remaining_calls": stats.remaining_calls,
+                "wait_time_seconds": self.rate_limiter.get_wait_time(endpoint)
+            }
+
+        return status
 
 
 # Singleton instance
 _facebook_service: Optional[FacebookService] = None
 
 
-def get_facebook_service(rate_limiter: RateLimiter = None) -> FacebookService:
+def get_facebook_service(rate_limiter: RateLimiter) -> FacebookService:
     """Get the global Facebook service instance."""
     global _facebook_service
     if _facebook_service is None:
-        if rate_limiter is None:
-            from services.rate_limiter import get_rate_limiter
-            rate_limiter = get_rate_limiter()
         _facebook_service = FacebookService(rate_limiter)
     return _facebook_service
 

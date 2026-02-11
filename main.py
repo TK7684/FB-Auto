@@ -16,16 +16,13 @@ import sys
 from pathlib import Path
 from typing import Dict, Optional
 import os
-import pytz
-from datetime import datetime
 
 from config.settings import settings
 from services.rate_limiter import RateLimiter, get_rate_limiter
 from services.knowledge_base import KnowledgeBase, get_knowledge_base
 from services.facebook_service import FacebookService, get_facebook_service
 from services.gemini_service import GeminiService, get_gemini_service
-from api import webhooks, health, dashboard
-from fastapi.staticfiles import StaticFiles
+from api import webhooks, health
 
 # Global service instances
 rate_limiter: Optional[RateLimiter] = None
@@ -34,24 +31,17 @@ facebook_service: Optional[FacebookService] = None
 gemini_service: Optional[GeminiService] = None
 
 # Configure logging
-def bangkok_time(record):
-    """Patcher to set log time to Asia/Bangkok."""
-    tz = pytz.timezone("Asia/Bangkok")
-    record["extra"]["timestamp"] = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
-    return record
-
 logger.remove()
 logger.add(
     sys.stdout,
-    format="<green>{extra[timestamp]}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
     level=settings.log_level
 )
-logger.configure(patcher=bangkok_time)
 logger.add(
     "logs/app.log",
     rotation="1 day",
     retention="30 days",
-    format="{extra[timestamp]} | {level: <8} | {name}:{function}:{line} - {message}"
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
 )
 
 
@@ -77,23 +67,21 @@ async def lifespan(app: FastAPI):
 
         # Initialize knowledge base
         logger.info("Initializing knowledge base...")
-        try:
-            knowledge_base = get_knowledge_base(
-                persist_dir=settings.chroma_persist_dir
-            )
+        knowledge_base = get_knowledge_base(
+            persist_dir=settings.chroma_persist_dir,
+            embedding_model=settings.embedding_model
+        )
 
-            # Load products if CSV exists
-            csv_path = Path("data/products.csv")
-            if csv_path.exists():
-                product_count = knowledge_base.load_products_from_csv(str(csv_path))
-                logger.info(f"✓ Loaded {product_count} products from CSV")
-            else:
-                logger.warning(f"Products CSV not found at {csv_path}")
+        # Load products if CSV exists
+        csv_path = Path("data/products.csv")
+        if csv_path.exists():
+            product_count = knowledge_base.load_products_from_csv(str(csv_path))
+            logger.info(f"✓ Loaded {product_count} products from CSV")
+        else:
+            logger.warning(f"Products CSV not found at {csv_path}")
 
-            logger.info(f"✓ Knowledge base: {knowledge_base.get_product_count()} products, "
-                       f"{knowledge_base.get_qa_count()} Q&A pairs")
-        except Exception as kb_err:
-             logger.error(f"⚠ Knowledge Base failed to load (RAG features disabled): {kb_err}")
+        logger.info(f"✓ Knowledge base: {knowledge_base.get_product_count()} products, "
+                   f"{knowledge_base.get_qa_count()} Q&A pairs")
 
         # Initialize Gemini service
         logger.info("Initializing Gemini AI service...")
@@ -150,13 +138,8 @@ app.add_middleware(
 )
 
 # Include routers
-# Include routers
 app.include_router(webhooks.router, prefix="/webhook", tags=["Webhooks"])
 app.include_router(health.router, prefix="/health", tags=["Health"])
-app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
-
-# Mount Dashboard Static Files
-app.mount("/dashboard", StaticFiles(directory="dashboard", html=True), name="dashboard")
 
 
 # Root endpoint

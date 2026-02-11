@@ -6,20 +6,11 @@ Provides endpoints for monitoring bot health and status.
 
 from fastapi import APIRouter, HTTPException
 from loguru import logger
-from typing import Dict, Any, TYPE_CHECKING
+from typing import Dict, Any
+import main
 from config.settings import settings
 
-# Use deferred import to avoid circular dependency
-if TYPE_CHECKING:
-    import main
-
 router = APIRouter()
-
-
-def get_main_module():
-    """Get main module with deferred import."""
-    import main as main_module
-    return main_module
 
 
 @router.get("/", summary="Basic health check")
@@ -29,8 +20,6 @@ async def health_check():
 
     Returns service status and basic metrics.
     """
-    main_module = get_main_module()
-    
     status = {
         "status": "healthy",
         "bot": settings.business_name,
@@ -40,29 +29,29 @@ async def health_check():
     # Check services
     services = {}
 
-    if main_module.rate_limiter:
+    if main.rate_limiter:
         services["rate_limiter"] = "ok"
     else:
         services["rate_limiter"] = "not initialized"
         status["status"] = "degraded"
 
-    if main_module.knowledge_base:
+    if main.knowledge_base:
         services["knowledge_base"] = {
             "status": "ok",
-            "products": main_module.knowledge_base.get_product_count(),
-            "qa_pairs": main_module.knowledge_base.get_qa_count()
+            "products": main.knowledge_base.get_product_count(),
+            "qa_pairs": main.knowledge_base.get_qa_count()
         }
     else:
         services["knowledge_base"] = "not initialized"
         status["status"] = "degraded"
 
-    if main_module.gemini_service:
+    if main.gemini_service:
         services["gemini"] = "ok"
     else:
         services["gemini"] = "not initialized"
         status["status"] = "degraded"
 
-    if main_module.facebook_service:
+    if main.facebook_service:
         services["facebook"] = "ok"
     else:
         services["facebook"] = "not initialized"
@@ -79,13 +68,11 @@ async def readiness_check():
 
     Returns 200 if ready, 503 if not ready.
     """
-    main_module = get_main_module()
-    
     checks = {
-        "rate_limiter": main_module.rate_limiter is not None,
-        "knowledge_base": main_module.knowledge_base is not None,
-        "gemini": main_module.gemini_service is not None,
-        "facebook": main_module.facebook_service is not None,
+        "rate_limiter": main.rate_limiter is not None,
+        "knowledge_base": main.knowledge_base is not None,
+        "gemini": main.gemini_service is not None,
+        "facebook": main.facebook_service is not None,
     }
 
     all_ready = all(checks.values())
@@ -119,12 +106,10 @@ async def rate_limit_metrics():
 
     Returns detailed rate limit status for all endpoints.
     """
-    main_module = get_main_module()
-    
-    if not main_module.rate_limiter:
+    if not main.rate_limiter:
         raise HTTPException(status_code=503, detail="Rate limiter not initialized")
 
-    metrics = main_module.rate_limiter.get_all_stats()
+    metrics = main.rate_limiter.get_all_stats()
 
     # Format for display
     formatted = {}
@@ -138,7 +123,7 @@ async def rate_limit_metrics():
 
     return {
         "metrics": formatted,
-        "timestamp": main_module.knowledge_base is not None  # Just to indicate we're responding
+        "timestamp": main.knowledge_base is not None  # Just to indicate we're responding
     }
 
 
