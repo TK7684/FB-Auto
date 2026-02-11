@@ -259,8 +259,15 @@ async def handle_incoming_message(sender_id: str, message_text: str):
 
             # Log to Google Sheets
             try:
-                from services.google_sheet_service import get_google_sheet_service
-                get_google_sheet_service().log_chat(sender_id, message_text, response)
+                from services.sheets_logger import log_to_sheet
+                log_to_sheet(
+                    bot_name="Chat Operator",
+                    action="DM Reply",
+                    user_name=f"User {sender_id}",
+                    user_message=message_text,
+                    bot_reply=response,
+                    status="success"
+                )
             except Exception as e:
                 logger.error(f"Failed to log chat: {e}")
 
@@ -347,6 +354,22 @@ async def handle_comment(comment_id: str, comment_text: str, post_id: str = None
 
         if success:
             logger.info(f"✓ Reply sent to comment {comment_id}")
+
+            # Log to Google Sheets
+            try:
+                from services.sheets_logger import log_to_sheet
+                log_to_sheet(
+                    bot_name="Comment Bot (Webhook)",
+                    action="Comment Reply",
+                    user_name=f"User", # Name not always available
+                    user_message=comment_text,
+                    bot_reply=response,
+                    comment_id=comment_id,
+                    post_id=post_id,
+                    status="success"
+                )
+            except Exception as e:
+                logger.error(f"Failed to log comment: {e}")
 
             # Save to Memory Service (Keep learning)
             try:
