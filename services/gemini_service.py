@@ -248,7 +248,7 @@ class GeminiService:
         # Use COMMENT_REPLY_PROMPT for short, CTA-focused responses
         if post_caption or is_purchase:
             prompt = COMMENT_REPLY_PROMPT.format(
-                post_caption=post_caption or "(ไม่มีข้อมูลโพสต์)",
+                post_caption=post_caption or "(ไม่มีข้อมูลโพสต์ เน้นตอบตามบริบทสินค้า)",
                 cta_text=cta_text,
                 comment_text=user_question
             )
